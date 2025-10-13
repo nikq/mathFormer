@@ -63,13 +63,10 @@ def evaluateModel(model, expression: str, max_len=50, print_result=True, print_c
         result = process.split('=')[-1].strip()
     else:
         result = process
-    if print_result:
-        print(f"Predicted process: {process}")
-        print(f"Predicted result: {result}")
 
     correct = check_correctness(expression, result)
     if print_result or (print_correct and correct):
-        print(f"eval {expression} = {result}, {correct}")
+        print(f" {"OK" if correct else "NG"} : {expression} = {process} = {result}")
     return correct
 
 

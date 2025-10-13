@@ -6,19 +6,13 @@ from src.generate_data import generate_expression
 
 
 class MathExprDataset(Dataset):
-    def __init__(self, vocab, num_examples=10000, depth=10, min_digits=1, max_digits=1):
+    def __init__(self, vocab, num_examples=10000, depth=10, min_digits=1, max_digits=1, with_process=True):
         self.vocab = vocab
         self.num_examples = num_examples
         self.depth = depth
         self.min_digits = min_digits
         self.max_digits = max_digits
-
-        print("MathExprDataset initialized.")
-        print(f"vocab size: {len(self.vocab)}")  # デバッグ用出力
-        print(f"num_examples: {self.num_examples}")  # デバッグ用出力
-        print(f"depth: {self.depth}")  # デバッグ用出力
-        print(f"min_digits: {self.min_digits}")  # デバッグ用出力
-        print(f"max_digits: {self.max_digits}")  # デバッグ用出力
+        self.with_process = with_process
 
     def __len__(self):
         return self.num_examples
@@ -28,7 +22,7 @@ class MathExprDataset(Dataset):
             max_depth=self.depth,
             min_digits=self.min_digits,
             max_digits=self.max_digits,
-            with_process=True if self.depth > 1 else False
+            with_process=self.with_process if self.depth > 1 else False
         )
         if process:
             # print(f"Generated: {expr}={process}={result}")  # デバッグ用出力
