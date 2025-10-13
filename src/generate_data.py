@@ -37,31 +37,6 @@ def evaluate(node: Node):
     raise ValueError(f"Unknown operator: {node.op}")
 
 
-def to_string(node: Node, parent_prec: int = 0, is_right: bool = False) -> str:
-    """ノードを文字列化。演算子の優先度と右辺での非結合性を考慮して不要な括弧を省く。
-    さらにランダム性を上げるため、不要な括弧をわずかな確率で追加する。
-    """
-    precedence = {'+': 1, '-': 1, '*': 2, '/': 2}
-    if isinstance(node, Leaf):
-        return str(node.value)
-
-    prec = precedence.get(node.op, 0)
-    left_str = to_string(node.left, prec, is_right=False)
-    right_str = to_string(node.right, prec, is_right=True)
-
-    s = f"{left_str}{node.op}{right_str}"
-
-    # 親の優先度より低ければ括弧が必要
-    need_paren = prec < parent_prec
-    # 同じ優先度でも右辺で - や / は括弧が必要（非結合法則）
-    if not need_paren and parent_prec == prec and is_right and node.op in ('-', '/'):
-        need_paren = True
-
-    # 不要な括弧をランダムに追加して多様性を上げる（15%の確率）
-    if not need_paren and random.random() < 0.15:
-        need_paren = True
-
-    return f"({s})" if need_paren else s
 
 
 def generate_tree(max_depth=3, current_depth=0, min_digits=1, max_digits=1):
@@ -98,7 +73,96 @@ def generate_tree(max_depth=3, current_depth=0, min_digits=1, max_digits=1):
     return OpNode(op, left, right)
 
 
-def generate_expression(max_depth=10, min_digits=1, max_digits=1):
+def to_string(node: Node, parent_prec: int = 0, is_right: bool = False) -> str:
+    """ノードを文字列化。演算子の優先度と右辺での非結合性を考慮して不要な括弧を省く。
+    さらにランダム性を上げるため、不要な括弧をわずかな確率で追加する。
+    """
+    precedence = {'+': 1, '-': 1, '*': 2, '/': 2}
+    if isinstance(node, Leaf):
+        return str(node.value)
+
+    prec = precedence.get(node.op, 0)
+    left_str = to_string(node.left, prec, is_right=False)
+    right_str = to_string(node.right, prec, is_right=True)
+
+    s = f"{left_str}{node.op}{right_str}"
+
+    # 親の優先度より低ければ括弧が必要
+    need_paren = prec < parent_prec
+    # 同じ優先度でも右辺で - や / は括弧が必要（非結合法則）
+    if not need_paren and parent_prec == prec and is_right and node.op in ('-', '/'):
+        need_paren = True
+
+    # 不要な括弧をランダムに追加して多様性を上げる（15%の確率）
+    if not need_paren and random.random() < 0.15:
+        need_paren = True
+
+    return f"({s})" if need_paren else s
+
+
+def to_string_with_process(node: Node) -> str:
+    """数式ツリーを段階的に評価し、途中式を文字列として生成する。"""
+    import copy
+
+    def find_deepest_reducible_op(n: Node, path: list):
+        if isinstance(n, Leaf):
+            return None
+        
+        if isinstance(n.left, Leaf) and isinstance(n.right, Leaf):
+            return path
+
+        if isinstance(n.left, OpNode):
+            left_path = find_deepest_reducible_op(n.left, path + ['left'])
+            if left_path:
+                return left_path
+        
+        if isinstance(n.right, OpNode):
+            right_path = find_deepest_reducible_op(n.right, path + ['right'])
+            if right_path:
+                return right_path
+        
+        return None
+
+    current_tree = copy.deepcopy(node)
+    steps = []
+
+    while isinstance(current_tree, OpNode):
+        path_to_op = find_deepest_reducible_op(current_tree, [])
+        
+        if not path_to_op:
+            # Should not happen in a valid tree with ops
+            break
+
+        # Get the node to reduce
+        op_parent = current_tree
+        for direction in path_to_op[:-1]:
+            op_parent = getattr(op_parent, direction)
+        
+        last_direction = path_to_op[-1] if path_to_op else None
+        
+        if last_direction:
+            op_node = getattr(op_parent, last_direction)
+        else: # root is reducible
+            op_node = current_tree
+
+        # Evaluate the operation
+        result = evaluate(op_node)
+        
+        # Create a new leaf with the result
+        new_leaf = Leaf(result)
+
+        # Replace the op_node with the new leaf in the tree
+        if not last_direction:
+            current_tree = new_leaf
+        else:
+            setattr(op_parent, last_direction, new_leaf)
+        
+        steps.append(to_string(current_tree))
+    
+    return "=".join(steps)
+
+
+def generate_expression(max_depth=10, min_digits=1, max_digits=1, with_process=False):
     # max_nodes を深さに変換する単純なロジック
     while True:
         tree = generate_tree(max_depth=max_depth, min_digits=min_digits, max_digits=max_digits)
@@ -106,12 +170,28 @@ def generate_expression(max_depth=10, min_digits=1, max_digits=1):
             # 評価を試みて、エラーが出ない式ができるまで繰り返す
             result = evaluate(tree)
             expr_str = to_string(tree)
-            return expr_str, str(result)
+            if with_process:
+                process_str = to_string_with_process(tree)
+                # If the process is just the final result, no intermediate steps
+                if str(result) == process_str.split("=")[-1]:
+                    return expr_str, "", str(result) # no process.
+                else:
+                    return expr_str, process_str, str(result)
+            else:
+                return expr_str, "", str(result)
         except ZeroDivisionError:
             continue
 
 
 if __name__ == "__main__":
-    for i in range(100):
-        expr, result = generate_expression(max_nodes=10,min_digits=1, max_digits=3)
+    depth=2
+    for i in range(10):
+        expr, process, result = generate_expression(max_depth=depth,min_digits=1, max_digits=2, with_process=True)
+        if process:
+            print(f"{expr}={process}={result}")
+        else:
+            print(f"{expr}={result}")
+    print("-" * 20)
+    for i in range(10):
+        expr, _, result = generate_expression(max_depth=depth,min_digits=1, max_digits=2, with_process=False)
         print(f"{expr}={result}")

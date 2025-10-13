@@ -24,11 +24,18 @@ class MathExprDataset(Dataset):
         return self.num_examples
 
     def __getitem__(self, idx):
-        expr, result = generate_expression(
+        expr, process, answer = generate_expression(
             max_depth=self.depth,
             min_digits=self.min_digits,
-            max_digits=self.max_digits
+            max_digits=self.max_digits,
+            with_process=True if self.depth > 1 else False
         )
+        if process:
+            # print(f"Generated: {expr}={process}={result}")  # デバッグ用出力
+            result = f"{process}={answer}"
+        else:
+            result = answer
+
         # print(f"Generated: {expr}={result}")  # デバッグ用出力
         src = [self.vocab['<sos>']] + [self.vocab[char] for char in expr] + [self.vocab['<eos>']]
         tgt = [self.vocab['<sos>']] + [self.vocab[char] for char in str(result)] + [self.vocab['<eos>']]
@@ -36,7 +43,7 @@ class MathExprDataset(Dataset):
 
 
 def build_vocab():
-    chars = sorted(list("0123456789.+-*/()"))
+    chars = sorted(list("0123456789.+-*/()="))
     vocab = {char: i for i, char in enumerate(chars)}
     vocab['<pad>'] = len(vocab)
     vocab['<sos>'] = len(vocab)
