@@ -10,20 +10,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.ba
 
 def check_correctness(expression: str, predicted_result: str) -> bool:
     try:
-        true_result = eval(expression)
-        predicted_result_float = eval(predicted_result)
+        true_result = str(eval(expression))
+        # predicted_result_float = eval(predicted_result)
 
-        # Handle potential floating point inaccuracies
-        if isinstance(true_result, float):
-            # Use math.isclose for float comparison
-            return math.isclose(true_result, predicted_result_float, rel_tol=1e-9, abs_tol=0.0)
-        elif isinstance(true_result, int):
-            # For integers, direct comparison or float comparison if predicted is float
-            return true_result == predicted_result_float
-        else:
-            # Fallback for other types, e.g., fractions if eval returns them
-            # Convert both to string for comparison if direct numeric comparison is not suitable
-            return str(true_result) == predicted_result
+        # # Handle potential floating point inaccuracies
+        # if isinstance(true_result, float):
+        #     # Use math.isclose for float comparison
+        #     return math.isclose(true_result, predicted_result_float, rel_tol=1e-9, abs_tol=0.0)
+        # elif isinstance(true_result, int):
+        #     # For integers, direct comparison or float comparison if predicted is float
+        #     return true_result == predicted_result_float
+        # else:
+        #     # Fallback for other types, e.g., fractions if eval returns them
+        #     # Convert both to string for comparison if direct numeric comparison is not suitable
+        return str(true_result) == predicted_result
     except Exception as e:
         # 正しくない数式表記は全て不正解とみなす.
         # print(f"Error evaluating expression or predicted result: {e}")
@@ -79,5 +79,22 @@ def evaluate(expression: str, max_len=50):
 
 
 
+import sys
+import argparse
+
+def main():
+    args = argparse.ArgumentParser(description="Evaluate a mathematical expression using the trained Transformer model.")
+    args.add_argument('expression', type=str, nargs='?', default="2+3", help="The mathematical expression to evaluate (default: '2+3').")
+    args.add_argument('--model_path', type=str, default='mathformer.pth', help="Path to the trained model file (default: 'mathformer.pth').")
+    args = args.parse_args()
+
+    if args.model_path:
+        model = TransformerModel(NTokens, NInp, NHead, NHid, NLayers, Dropout).to(device)
+        model.load_state_dict(torch.load(args.model_path, map_location=device))
+        model.eval()
+        evaluateModel(model, args.expression, max_len=100)
+    else:
+        evaluate(args.expression, max_len=100)
+
 if __name__ == '__main__':
-    evaluate("2+3")
+    main()
