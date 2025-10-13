@@ -36,7 +36,7 @@ def train(args):
     for depth in range(1, args.max_depth + 1):
         for digits in range(args.min_digits, args.max_digits + 1):
             # if there is a checkpoint for this depth and digit, load it
-            checkpoint_path = f'mathformer_depth{depth}_digits_{digits}.pth'
+            checkpoint_path = f'mathformer_depth{depth}_digits{digits}.pth'
             model_loaded = False
 
             if args.skip_pretrained:
@@ -53,7 +53,10 @@ def train(args):
                 dataset = MathExprDataset(vocab, num_examples=train_num, depth=depth, min_digits=1, max_digits=digits, with_process=args.with_process)
                 dataloader = DataLoader(dataset, batch_size=train_batch, shuffle=True, collate_fn=lambda b: collate_fn(b, pad_value))
 
-                for epoch in range(args.epochs):
+                difficulty = depth * digits
+                epochs = int(args.epochs * difficulty / args.epoch_scale)
+
+                for epoch in range(epochs):
                     epoch_loss = 0
                     for src, tgt in dataloader:
                         optimizer.zero_grad()
@@ -72,7 +75,7 @@ def train(args):
                         optimizer.step()
                         epoch_loss += loss.item()
 
-                    print(f"Epoch {epoch+1}/{args.epochs}, Loss: {epoch_loss/len(dataloader)}")
+                    print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(dataloader)}")
 
                     correct_count = 0
                     total_count = 0
@@ -125,5 +128,6 @@ if __name__ == '__main__':
     parser.add_argument('--max_digits', type=int, default=3, help='Maximum number of digits in numbers.')
     parser.add_argument('--max_depth', type=int, default=3, help='Maximum depth of expressions.')
     parser.add_argument('--train_print', default=False, action='store_true', help='Print training evaluation results.')
+    parser.add_argument('--epoch_scale', type=float, default=1, help='Scaling factor for epochs based on difficulty.')
     args = parser.parse_args()
     train(args)

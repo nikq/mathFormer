@@ -20,6 +20,8 @@ class OpNode(Node):
 
 def evaluate(node: Node):
     if isinstance(node, Leaf):
+        # return 1 if fraction values are the same
+
         return Fraction(node.value)
     left = evaluate(node.left)
     right = evaluate(node.right)
@@ -41,11 +43,12 @@ def evaluate(node: Node):
 
 def generate_tree(max_depth=3, current_depth=0, min_digits=1, max_digits=1):
     # 深さに達するか確率で葉を返す
-    if current_depth >= max_depth or (current_depth > 0 and random.random() < 0.4):
+    if current_depth >= max_depth or (current_depth > 0 and random.random() < 0.8):
         num_digits = random.randint(min_digits, max_digits)
         lower_bound = 10**(num_digits - 1) if num_digits > 1 else 0
         upper_bound = 10**num_digits - 1
-        return Leaf(random.randint(lower_bound, upper_bound))
+        sign = random.choice([1, -1]) if lower_bound > 0 else 1
+        return Leaf(random.randint(lower_bound, upper_bound) * sign)
 
     operators = ['+', '-', '*', '/']
     op = random.choice(operators)
