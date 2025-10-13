@@ -1,8 +1,8 @@
 
 # Model parameters
 NTokens = 0 # will be set after building vocab
-NInp = 32
-NHead = 8
-NHid = 2048
-NLayers = 1
-Dropout = 0.1
+NInp = 32 # embedding dimension
+NHead = 8 # number of attention heads
+NHid = 2048 # dimension of the feedforward network
+NLayers = 4 # number of transformer layers
+Dropout = 0.1 # dropout rate

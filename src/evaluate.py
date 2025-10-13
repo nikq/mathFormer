@@ -25,11 +25,12 @@ def check_correctness(expression: str, predicted_result: str) -> bool:
             # Convert both to string for comparison if direct numeric comparison is not suitable
             return str(true_result) == predicted_result
     except Exception as e:
-        print(f"Error evaluating expression or predicted result: {e}")
+        # 正しくない数式表記は全て不正解とみなす.
+        # print(f"Error evaluating expression or predicted result: {e}")
         return False
 
 
-def evaluateModel(model, expression: str, max_len=50, print_result=True):
+def evaluateModel(model, expression: str, max_len=50, print_result=True, print_correct=True):
     vocab = build_vocab()
     pad_value = vocab['<pad>']
     NTokens = len(vocab)
@@ -55,9 +56,19 @@ def evaluateModel(model, expression: str, max_len=50, print_result=True):
         if next_token == vocab['<eos>']:
             break
 
-    result = "".join([inv_vocab[i] for i in tgt[1:-1]])
-    correct = check_correctness(expression, result)
+    process = "".join([inv_vocab[i] for i in tgt[1:-1]])
+    
+    # extract final term if there are multiple '=' in the result
+    if '=' in process:
+        result = process.split('=')[-1].strip()
+    else:
+        result = process
     if print_result:
+        print(f"Predicted process: {process}")
+        print(f"Predicted result: {result}")
+
+    correct = check_correctness(expression, result)
+    if print_result or (print_correct and correct):
         print(f"eval {expression} = {result}, {correct}")
     return correct
 
