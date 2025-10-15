@@ -4,8 +4,8 @@ from torch.utils.data import DataLoader
 import argparse
 
 from src.generate_data import generate_expression
-from src.model import TransformerModel
-from src.prepare_data import MathExprDataset, build_vocab, collate_fn
+from src.model import TransformerModel, AutoRegressiveTransformerModel
+from src.prepare_data import MathExprDataset, build_vocab, collate_fn, collate_fn_autoregressive
 
 # Hyperparameters are now managed by argparse
 
@@ -20,20 +20,25 @@ def train(args):
     pad_value = vocab['<pad>']
     NTokens = len(vocab)
 
-    model = TransformerModel(NTokens, NInp, NHead, NHid, NLayers, Dropout).to(device)
+    if args.autoregressive:
+        model = AutoRegressiveTransformerModel(NTokens, NInp, NHead, NHid, NLayers, Dropout).to(device)
+    else:
+        model = TransformerModel(NTokens, NInp, NHead, NHid, NLayers, Dropout).to(device)
     criterion = nn.CrossEntropyLoss(ignore_index=pad_value)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     if args.practice:
         train_print = True
+        train_print_correct = True
         train_num = 1000
         train_batch = 10
     else:
         train_print = args.train_print
+        train_print_correct = args.train_print_correct
         train_num = args.num_examples
         train_batch = args.batch_size
 
-    for depth in range(1, args.max_depth + 1):
+    for depth in range(args.min_depth, args.max_depth + 1):
         for digits in range(args.min_digits, args.max_digits + 1):
             # if there is a checkpoint for this depth and digit, load it
             checkpoint_path = f'mathformer_depth{depth}_digits{digits}.pth'
@@ -50,38 +55,43 @@ def train(args):
             if not model_loaded:
                 # no model loaded, train from scratch
                 print(f"Training with digits={digits}, depth={depth}, with_process={args.with_process}")
-                dataset = MathExprDataset(vocab, num_examples=train_num, depth=depth, min_digits=1, max_digits=digits, with_process=args.with_process)
-                dataloader = DataLoader(dataset, batch_size=train_batch, shuffle=True, collate_fn=lambda b: collate_fn(b, pad_value))
+                dataset = MathExprDataset(vocab, num_examples=train_num, depth=depth, min_digits=1, max_digits=digits, with_process=args.with_process, autoregressive=args.autoregressive)
+                if args.autoregressive:
+                    dataloader = DataLoader(dataset, batch_size=train_batch, shuffle=True, collate_fn=lambda b: collate_fn_autoregressive(b, pad_value))
+                else:
+                    dataloader = DataLoader(dataset, batch_size=train_batch, shuffle=True, collate_fn=lambda b: collate_fn(b, pad_value))
 
                 difficulty = depth * digits
-                epochs = int(args.epochs * difficulty / args.epoch_scale)
+                epochs = int(args.epochs * difficulty * args.epoch_scale)
 
                 for epoch in range(epochs):
                     epoch_loss = 0
-                    for src, tgt in dataloader:
+                    for batch in dataloader:
                         optimizer.zero_grad()
-
-                        src = src.permute(1, 0).to(device)
-                        tgt = tgt.permute(1, 0).to(device)
-
-                        # Create masks
-                        src_mask = model.generate_square_subsequent_mask(src.size(0), device)
-                        tgt_mask = model.generate_square_subsequent_mask(tgt.size(0) - 1, device)
-                        src_key_padding_mask = (src == pad_value).permute(1, 0)
-
-                        output = model(src, tgt[:-1, :], src_mask, tgt_mask, src_key_padding_mask)
-                        loss = criterion(output.view(-1, NTokens), tgt[1:, :].reshape(-1))
+                        if args.autoregressive:
+                            seq = batch.permute(1,0).to(device)  # (T,B)
+                            logits = model(seq[:-1, :])  # predict next for each position except last input token
+                            loss = criterion(logits.view(-1, NTokens), seq[1:, :].reshape(-1))
+                        else:
+                            src, tgt = batch
+                            src = src.permute(1, 0).to(device)
+                            tgt = tgt.permute(1, 0).to(device)
+                            src_mask = model.generate_square_subsequent_mask(src.size(0), device)
+                            tgt_mask = model.generate_square_subsequent_mask(tgt.size(0) - 1, device)
+                            src_key_padding_mask = (src == pad_value).permute(1, 0)
+                            output = model(src, tgt[:-1, :], src_mask, tgt_mask, src_key_padding_mask)
+                            loss = criterion(output.view(-1, NTokens), tgt[1:, :].reshape(-1))
                         loss.backward()
                         optimizer.step()
                         epoch_loss += loss.item()
-
                     print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(dataloader)}")
-
+                    
+                    # epochごとに評価
                     correct_count = 0
                     total_count = 0
                     for i in range(100):
                         expr, _, result = generate_expression(max_depth=depth,min_digits=1, max_digits=digits, with_process=False)
-                        correct = evaluateModel(model, expr, print_result=train_print, print_correct=False)
+                        correct = evaluateModel(model, expr, print_result=train_print, print_correct=train_print_correct, autoregressive=args.autoregressive)
                         total_count += 1
                         if correct:
                             correct_count += 1
@@ -95,7 +105,7 @@ def train(args):
             total_count = 0
             for i in range(100):
                 expr, _, result = generate_expression(max_depth=depth,min_digits=1, max_digits=digits, with_process=False)
-                correct = evaluateModel(model, expr, print_result=True)
+                correct = evaluateModel(model, expr, print_result=True, autoregressive=args.autoregressive)
                 total_count += 1
                 if correct:
                     correct_count += 1
@@ -107,7 +117,7 @@ def train(args):
             for i in range(100):
                 # スコアは常にフルスペックの問題に対して計算する.
                 expr, _, result = generate_expression(max_depth=args.max_depth,min_digits=args.min_digits, max_digits=args.max_digits, with_process=False)
-                correct = evaluateModel(model, expr, print_result=True)
+                correct = evaluateModel(model, expr, print_result=True, autoregressive=args.autoregressive)
                 total_count += 1
                 if correct:
                     correct_count += 1
@@ -120,14 +130,17 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train for.')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate.')
     parser.add_argument('--batch_size', type=int, default=128, help='Batch size for training.')
-    parser.add_argument('--num_examples', type=int, default=100000, help='Number of examples per difficulty.')
+    parser.add_argument('--num_examples', type=int, default=10000, help='Number of examples per difficulty.')
     parser.add_argument('--practice', action='store_true', help='Use smaller dataset for practice.')
     parser.add_argument('--skip_pretrained',default=False, action='store_true', help='Skip loading pretrained models and train from scratch.')
-    parser.add_argument('--with_process', default=True, action='store_true', help='Train with intermediate steps in the target.')
+    parser.add_argument('--with_process', default=True, action=argparse.BooleanOptionalAction, help='Include intermediate reduction steps (use --no-with-process to disable).')
     parser.add_argument('--min_digits', type=int, default=1, help='Minimum number of digits in numbers.')
     parser.add_argument('--max_digits', type=int, default=3, help='Maximum number of digits in numbers.')
+    parser.add_argument('--min_depth', type=int, default=1, help='Minimum depth of expressions.')
     parser.add_argument('--max_depth', type=int, default=3, help='Maximum depth of expressions.')
     parser.add_argument('--train_print', default=False, action='store_true', help='Print training evaluation results.')
+    parser.add_argument('--train_print_correct', default=False, action='store_true', help='Print only correct training evaluation results.')
     parser.add_argument('--epoch_scale', type=float, default=1, help='Scaling factor for epochs based on difficulty.')
+    parser.add_argument('--autoregressive', default=False, action='store_true', help='Use autoregressive single sequence training (GPT style).')
     args = parser.parse_args()
     train(args)
