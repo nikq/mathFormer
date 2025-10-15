@@ -43,11 +43,13 @@ def evaluate(node: Node):
 
 def generate_tree(max_depth=3, current_depth=0, min_digits=1, max_digits=1):
     # 深さに達するか確率で葉を返す
-    if current_depth >= max_depth or (current_depth > 0 and random.random() < 0.8):
+    if current_depth >= max_depth or (current_depth > 0 and random.random() < 0.5):
         num_digits = random.randint(min_digits, max_digits)
-        lower_bound = 10**(num_digits - 1) if num_digits > 1 else 0
+        lower_bound = 10**(num_digits - 1) if num_digits > 1 else 1
         upper_bound = 10**num_digits - 1
-        sign = random.choice([1, -1]) if lower_bound > 0 else 1
+        sign = random.choice([1, -1])
+        if random.random() < 0.005:
+            sign = 0 # ごくまれに0を生成
         return Leaf(random.randint(lower_bound, upper_bound) * sign)
 
     operators = ['+', '-', '*', '/']
@@ -188,13 +190,13 @@ def generate_expression(max_depth=10, min_digits=1, max_digits=1, with_process=F
 
 if __name__ == "__main__":
     depth=2
-    for i in range(10):
+    for i in range(100):
         expr, process, result = generate_expression(max_depth=depth,min_digits=1, max_digits=2, with_process=True)
         if process:
             print(f"{expr}={process}={result}")
         else:
             print(f"{expr}={result}")
     print("-" * 20)
-    for i in range(10):
+    for i in range(100):
         expr, _, result = generate_expression(max_depth=depth,min_digits=1, max_digits=2, with_process=False)
         print(f"{expr}={result}")
