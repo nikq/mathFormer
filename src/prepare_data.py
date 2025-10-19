@@ -2,49 +2,64 @@ import torch
 from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
-from src.generate_data import generate_expression
+from src.generate_data import generate_sample, GenConfig, stream_samples
 
 
 class MathExprDataset(Dataset):
-    def __init__(self, vocab, num_examples=10000, depth=10, min_digits=1, max_digits=1, with_process=True, autoregressive=False):
+    """Autoregressive-only dataset producing single sequences.
+
+    Each sample is built as: <sos>{input}={target}<eos>
+    Where generate_sample may include scratchpad sections:
+      input: possibly denoised expression
+      target: either result or <scratch>... </scratch><final>=RESULT</final>
+    We collapse to a linear form: input=target_text
+    Example:
+      input: 14*3
+      target: <scratch>10*3=30, 30+4*3=42</scratch><final>=42</final>
+      sequence tokens model sees: <sos>14*3=<scratch>10*3=30, 30+4*3=42</scratch><final>=42</final><eos>
+    """
+
+    def __init__(self, vocab: dict, num_examples: int = 10000, depth: int = 3, max_digits: int = 2):
         self.vocab = vocab
         self.num_examples = num_examples
         self.depth = depth
-        self.min_digits = min_digits
         self.max_digits = max_digits
-        self.with_process = with_process
-        self.autoregressive = autoregressive
+        # configure generator
+        self.gen_cfg = GenConfig(
+            max_depth_cap=depth,
+            min_digits=1,
+            max_digits=max_digits,
+            seed=42,
+            prob_scratchpad_full=1.0,
+            prob_scratchpad_partial=0.1)
+        self.gen = stream_samples(self.gen_cfg)
 
     def __len__(self):
         return self.num_examples
 
     def __getitem__(self, idx):
-        expr, process, answer = generate_expression(
-            max_depth=self.depth,
-            min_digits=self.min_digits,
-            max_digits=self.max_digits,
-            with_process=self.with_process if self.depth > 1 else False
-        )
-        if self.autoregressive:
-            # Build single sequence: expr=process=answer (where process may be empty)
-            if process:
-                full = f"{expr}={process}={answer}"
-            else:
-                full = f"{expr}={answer}"
-            seq = [self.vocab['<sos>']] + [self.vocab[c] for c in full] + [self.vocab['<eos>']]
-            return torch.tensor(seq)
-        else:
-            if process:
-                result = f"{process}={answer}"
-            else:
-                result = answer
-            src = [self.vocab['<sos>']] + [self.vocab[char] for char in expr] + [self.vocab['<eos>']]
-            tgt = [self.vocab['<sos>']] + [self.vocab[char] for char in str(result)] + [self.vocab['<eos>']]
-            return torch.tensor(src), torch.tensor(tgt)
+        sample = next(self.gen)
+        # linearize: input '=' target
+        full = f"{sample['input']}{' [' + sample['scratch'] +']' if sample['scratch'] else ''}; {sample['target']}"
+        # print(full)
+        # Map chars; unknown chars (e.g. '<','>','/','scratch','final') must be in vocab.
+        tokens = [self.vocab['<sos>']]
+        for ch in full:
+            if ch not in self.vocab:
+                # add unknown? raise for visibility (vocab must include all needed chars)
+                print(f"Unknown char '{ch}' in sample: {full}")
+                raise KeyError(
+                    f"Character '{ch}' missing from vocab. Expand vocab for scratchpad tokens.")
+            tokens.append(self.vocab[ch])
+        tokens.append(self.vocab['<eos>'])
+        return torch.tensor(tokens, dtype=torch.long)
 
 
 def build_vocab():
-    chars = sorted(list("0123456789.+-*/()="))
+    # Extend vocab with scratchpad markup symbols
+    base_chars = list("0123456789.+-*/()=^")
+    markup_chars = list("[], ;")
+    chars = sorted(set(base_chars + markup_chars))
     vocab = {char: i for i, char in enumerate(chars)}
     vocab['<pad>'] = len(vocab)
     vocab['<sos>'] = len(vocab)
@@ -52,19 +67,6 @@ def build_vocab():
     return vocab
 
 
-def collate_fn(batch, pad_value):
-    # Legacy seq2seq collate
-    src_batch, tgt_batch = [], []
-    for item in batch:
-        src_sample, tgt_sample = item
-        src_batch.append(src_sample)
-        tgt_batch.append(tgt_sample)
-    src_batch = pad_sequence(src_batch, padding_value=pad_value, batch_first=True)
-    tgt_batch = pad_sequence(tgt_batch, padding_value=pad_value, batch_first=True)
-    return src_batch, tgt_batch
-
-
 def collate_fn_autoregressive(batch, pad_value):
-    # Batch is list of 1D tensors
     seqs = pad_sequence(batch, padding_value=pad_value, batch_first=True)
     return seqs
