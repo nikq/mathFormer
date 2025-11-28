@@ -91,13 +91,31 @@ def flatten(node: Node, op: str) -> List[Node]:
         return flatten(node.left, op) + flatten(node.right, op)
     return [node]
 
-def to_string(node: Node, parent_prec: int = 0, is_right: bool = False, strip_paren: bool=False) -> str:
+def format_number(val: int | Fraction, endian: str) -> str:
+    if isinstance(val, Fraction):
+        if val.denominator == 1:
+            return format_number(val.numerator, endian)
+        num = format_number(val.numerator, endian)
+        den = format_number(val.denominator, endian)
+        return f"{num}/{den}"
+    
+    s = str(val)
+    if endian == 'big':
+        return s
+    elif endian == 'little':
+        if val < 0:
+            return '-' + s[1:][::-1]
+        return s[::-1]
+    else:
+        raise ValueError(f"Unknown endian: {endian}")
+
+def to_string(node: Node, parent_prec: int = 0, is_right: bool = False, strip_paren: bool=False, endian: str = 'big') -> str:
     precedence = {'+': 1, '-': 1, '*': 2, '/': 2}
     if isinstance(node, Leaf):
-        return str(node.value)
+        return format_number(node.value, endian)
     prec = precedence.get(node.op, 0)
-    left_str = to_string(node.left, prec, is_right=False, strip_paren=strip_paren)
-    right_str = to_string(node.right, prec, is_right=True, strip_paren=strip_paren)
+    left_str = to_string(node.left, prec, is_right=False, strip_paren=strip_paren, endian=endian)
+    right_str = to_string(node.right, prec, is_right=True, strip_paren=strip_paren, endian=endian)
     s = f"{left_str}{node.op}{right_str}"
     need_paren = prec < parent_prec or (parent_prec == prec and is_right and node.op in ('-', '/'))
     if not need_paren and not strip_paren and random.random() < 0.15:
@@ -127,7 +145,7 @@ def canonicalize(node: Node) -> Node:
 
 def canonical_hash(node: Node) -> int:
     norm = canonicalize(node)
-    s = to_string(norm, strip_paren=True)
+    s = to_string(norm, strip_paren=True, endian='big')
     h = 0xcbf29ce484222325
     for ch in s:
         h ^= ord(ch)
@@ -136,7 +154,7 @@ def canonical_hash(node: Node) -> int:
 
 
 # ====== フルスクラッチ（最下層から簡約） ======
-def full_scratch(node: Node) -> str:
+def full_scratch(node: Node, endian: str = 'big') -> str:
     # 一番深いノードから定数にしていく
     steps: List[str] = []
     # print('Generating full scratchpad:' + to_string(node))
@@ -157,156 +175,18 @@ def full_scratch(node: Node) -> str:
             if right_val == 0:
                 raise ZeroDivisionError
             result = left_val / right_val
-        step_str = f"{left_val}{n.op}{right_val}={result}"
+        
+        s_left = format_number(left_val, endian)
+        s_right = format_number(right_val, endian)
+        s_res = format_number(result, endian)
+        step_str = f"{s_left}{n.op}{s_right}={s_res}"
         # print(f' . {step_str}')
         steps.append(step_str)
         return result
     helper(node)
     return ", ".join(steps)
 
-# ====== 部分スクラッチ（人間的分解） ======
-def tens_round_split(n: int) -> Tuple[int, int]:
-    # 十位相当の成分と残差に分解（例：14 -> 10, 4 / -27 -> -20, -7）
-    if n >= 0:
-        t = (n // 10) * 10
-    else:
-        t = -(((-n) // 10) * 10)
-    r = n - t
-    if t == 0:
-        if abs(n) >= 5:
-            t = 5 if n > 0 else -5
-            r = n - t
-        else:
-            t = 1 if n > 0 else -1
-            r = n - t
-    return t, r
 
-import math
-
-# addition, a,b>0
-def partial_steps_for_add(a: int, b: int) -> List[str]:
-    steps = []
-    a = abs(a)
-    b = abs(b)
-    digits_a = int(math.log10(a)) + 1 if a != 0 else 1
-    digits_b = int(math.log10(b)) + 1 if b != 0 else 1
-    min_digits = min(digits_a, digits_b)
-    carry = 0
-    for digit_rank in range(0,min_digits):
-        digit_place = 10 ** digit_rank
-        a_digit = (a // digit_place) % 10
-        b_digit = (b // digit_place) % 10
-        if a_digit == 0 and b_digit == 0:
-            continue
-        step = f'{a_digit}+{abs(b_digit)}{"+1" if carry else ""}={a_digit + b_digit + carry}'
-        carry = 0
-        if a_digit + b_digit > 10:
-            carry = 1
-        steps.append(step)
-
-    a_under_digits = a % (10 ** min_digits)
-    b_under_digits = b % (10 ** min_digits)
-    steps.append(f'{a_under_digits}+{b_under_digits}={a_under_digits+b_under_digits}')
-    return steps
-
-# subtraction, a> b>=0
-def partial_steps_for_sub(a: int, b: int) -> List[str]:
-    steps = []
-    digits_a = int(math.log10(abs(a))) + 1 if a != 0 else 1
-    digits_b = int(math.log10(abs(b))) + 1 if b != 0 else 1
-    min_digits = min(digits_a, digits_b)
-    borrow = 0
-    for digit_rank in range(0,min_digits):
-        digit_place = 10 ** digit_rank
-        a_digit = (abs(a) // digit_place) % 10
-        b_digit = (abs(b) // digit_place) % 10
-        if a_digit == 0 and b_digit == 0:
-            continue
-        step = f'{a_digit}-{abs(b_digit)}{"-1" if borrow else ""}={a_digit - b_digit - borrow}'
-        borrow = 0
-        if a_digit - b_digit < 0:
-            borrow = 1
-        steps.append(step)
-    return steps
-
-def partial_steps_for_mul(a: int, b: int) -> List[str]:
-    steps = []
-    a=abs(a)
-    b=abs(b)
-    digits_a = int(math.log10(a)) + 1 if a != 0 else 1
-    digits_b = int(math.log10(b)) + 1 if b != 0 else 1
-    numbers = []
-    for a_rank in range(digits_a):
-        a_place = 10 ** a_rank
-        a_digit = ((a // a_place) % 10)*a_place
-        if a_digit == 0:
-            continue
-        for b_rank in range(digits_b):
-            b_place = 10 ** b_rank
-            b_digit = ((b // b_place) % 10) * b_place
-            if b_digit == 0:
-                continue
-            step = f'{a_digit}*{b_digit}={a_digit * b_digit}'
-            steps.append(step)
-            numbers.append(a_digit * b_digit)
-    steps.append(f'{a}*{b}={a*b}')
-    return steps
-
-def partial_steps_for_div(a: int, b: int) -> List[str]:
-    # 約分のみ対応
-    from math import gcd
-    g = gcd(abs(a), abs(b))
-    if g == 1:
-        # already reduced
-        return []
-    return [f"{a}/{b}={a//g}/{b//g}"]
-
-def try_partial_scratch(node: Node) -> Optional[str]:
-    # 候補収集（+,-,*）
-    candidates: List[OpNode] = []
-    def collect(n: Node):
-        if isinstance(n, OpNode):
-            if n.op in ['+', '-', '*', '/']:
-                candidates.append(n)
-            collect(n.left)
-            collect(n.right)
-    collect(node)
-    random.shuffle(candidates)
-
-    for se in candidates:
-        try:
-            lval = evaluate(se.left)
-            rval = evaluate(se.right)
-        except ZeroDivisionError:
-            continue
-        if lval.denominator != 1 or rval.denominator != 1:
-            continue
-        a, b = int(lval), int(rval)
-        steps: List[str] = []
-        if se.op == '+' or se.op == '-':
-            if abs(a) < 10 and abs(b) < 10:
-                continue
-            if a < 0 and b > 0:
-                steps = partial_steps_for_sub(b,a)
-            elif a > 0 and b < 0:
-                steps = partial_steps_for_sub(a,-b)
-            elif a > 0 and b > 0:
-                steps = partial_steps_for_add(a, b)
-        elif se.op == '-':
-            if a <= b or max(abs(a), abs(b)) < 10:
-                continue
-            steps = partial_steps_for_sub(a, b)
-        elif se.op == '*':
-            if max(abs(a), abs(b)) < 10:
-                continue
-            steps = partial_steps_for_mul(a, b)
-        elif se.op == '/':
-            steps = partial_steps_for_div(a, b)
-        else:
-            continue
-        if steps:
-            return ", ".join(steps)
-    return None
 
 
 # ====== サンプリング分布 ======
@@ -331,20 +211,19 @@ class GenConfig:
     min_digits: int = 1
     max_digits: int = 2
     prob_scratchpad_full: float = 0.5       # フルスクラッチの確率
-    prob_scratchpad_partial: float = 0.8    # 部分スクラッチの確率（深さ依存で上乗せ可）
+    prob_little_endian: float = 0.5         # リトルエンディアンの確率
     verifier_ratio: float = 0.05
     dedup_window: int = 100000
     seed: Optional[int] = None
-    depth_boost_threshold: int = 4           # この深さ以上なら部分スクラッチ確率を上げる
-    depth_boost_add: float = 0.15            # 上乗せ値
 
 
 # ====== サンプル生成 ======
 def generate_sample(cfg: GenConfig) -> Dict[str, Any]:
     depth = sample_depth(cfg.max_depth_cap)
     min_d, max_d = sample_digits(cfg.min_digits, cfg.max_digits)
-    prob_partial = cfg.prob_scratchpad_partial
     prob_full = cfg.prob_scratchpad_full
+    
+    endian = 'little' if random.random() < cfg.prob_little_endian else 'big'
 
     while True:
         tree = generate_tree(max_depth=depth, min_digits=min_d, max_digits=max_d)
@@ -354,23 +233,19 @@ def generate_sample(cfg: GenConfig) -> Dict[str, Any]:
         except ZeroDivisionError:
             continue
 
-    expr = to_string(tree)
+    expr = to_string(tree, endian=endian)
     norm_hash = canonical_hash(tree)
 
     r = random.random()
     use_full = r < prob_full
-    use_partial = r < prob_partial
-    # print(f'Generated sample with depth={depth}, digits=({min_d},{max_d}), r{r} {prob_full} use_full={use_full}, use_partial={use_partial}')
+    # print(f'Generated sample with depth={depth}, digits=({min_d},{max_d}), r{r} {prob_full} use_full={use_full}')
 
     scratch = ""
     if use_full:
-        scratch = full_scratch(tree)
-        target = str(result)
-    elif use_partial:
-        scratch = try_partial_scratch(tree)
-        target = str(result)
+        scratch = full_scratch(tree, endian=endian)
+        target = format_number(result, endian)
     else:
-        target = str(result)
+        target = format_number(result, endian)
 
     model_input = expr
 
@@ -381,10 +256,12 @@ def generate_sample(cfg: GenConfig) -> Dict[str, Any]:
         "expr": expr,
         "result": str(result),
         "hash": norm_hash,
+        "endian": endian,
         "meta": {
             "depth": depth,
             "digits": (min_d, max_d),
-            "scratchpad": ("partial" if use_partial else ("full" if use_full else "none")),
+            "scratchpad": ("full" if use_full else "none"),
+            "endian": endian,
         },
     }
 
@@ -420,7 +297,7 @@ def stream_samples(cfg: GenConfig) -> Iterator[Dict[str, Any]]:
 # ====== 使い方デモ ======
 def demo(n: int = 1, cfg: GenConfig | None = None) -> None:
     if cfg is None:
-        cfg = GenConfig(max_depth_cap=4, min_digits=1, max_digits=3, seed=42, prob_scratchpad_full=1.0, prob_scratchpad_partial=0.5)
+        cfg = GenConfig(max_depth_cap=4, min_digits=1, max_digits=3, seed=42, prob_scratchpad_full=1.0)
     gen = stream_samples(cfg)
     for i in range(n):
         s = next(gen)
@@ -436,10 +313,11 @@ def main():
     parser.add_argument('--max-digits', type=int, default=3)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--prob-full', type=float, default=0.5)
-    parser.add_argument('--prob-partial', type=float, default=0.8)
+    parser.add_argument('--prob-little-endian', type=float, default=0.5)
     args = parser.parse_args()
     cfg = GenConfig(max_depth_cap=args.max_depth, min_digits=args.min_digits, max_digits=args.max_digits,
-                    seed=args.seed, prob_scratchpad_full=args.prob_full, prob_scratchpad_partial=args.prob_partial)
+                    seed=args.seed, prob_scratchpad_full=args.prob_full,
+                    prob_little_endian=args.prob_little_endian)
     demo(args.num, cfg)
 
 

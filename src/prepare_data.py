@@ -19,7 +19,7 @@ class MathExprDataset(Dataset):
       sequence tokens model sees: <sos>14*3=<scratch>10*3=30, 30+4*3=42</scratch><final>=42</final><eos>
     """
 
-    def __init__(self, vocab: dict, num_examples: int = 10000, depth: int = 3, max_digits: int = 2):
+    def __init__(self, vocab: dict, num_examples: int = 10000, depth: int = 3, max_digits: int = 2, prob_little_endian: float = 0.5):
         self.vocab = vocab
         self.num_examples = num_examples
         self.depth = depth
@@ -31,7 +31,7 @@ class MathExprDataset(Dataset):
             max_digits=max_digits,
             seed=42,
             prob_scratchpad_full=1.0,
-            prob_scratchpad_partial=0.1)
+            prob_little_endian=prob_little_endian)
         self.gen = stream_samples(self.gen_cfg)
 
     def __len__(self):
@@ -44,6 +44,13 @@ class MathExprDataset(Dataset):
         # print(full)
         # Map chars; unknown chars (e.g. '<','>','/','scratch','final') must be in vocab.
         tokens = [self.vocab['<sos>']]
+        
+        # Add endian token
+        if sample.get('endian') == 'little':
+            tokens.append(self.vocab['<little>'])
+        else:
+            tokens.append(self.vocab['<big>'])
+            
         for ch in full:
             if ch not in self.vocab:
                 # add unknown? raise for visibility (vocab must include all needed chars)
@@ -64,6 +71,8 @@ def build_vocab():
     vocab['<pad>'] = len(vocab)
     vocab['<sos>'] = len(vocab)
     vocab['<eos>'] = len(vocab)
+    vocab['<big>'] = len(vocab)
+    vocab['<little>'] = len(vocab)
     return vocab
 
 
