@@ -127,7 +127,7 @@ def train(args):
             for i in range(100):
                 # Generate a fresh sample and evaluate expression part
                 sample = next(stream)
-                expr = sample['expr']
+                expr = sample.expr
                 correct = evaluateModel(model, expr, print_result=train_print, print_correct=train_print_correct)
                 total_count += 1
                 if correct:
@@ -156,9 +156,8 @@ def train(args):
             })
         
         # Save checkpoint after each digit-depth combination
-        if not model_loaded:
-            checkpoint_path = f"checkpoints/model{modelhash()}_step{step}.pt"
-            torch.save(model.state_dict(), checkpoint_path)
+        checkpoint_path = f"checkpoints/model{modelhash()}_step{step}.pt"
+        torch.save(model.state_dict(), checkpoint_path)
 
         step += 1
 
