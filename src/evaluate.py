@@ -175,8 +175,7 @@ def main():
             sampler = stream_samples(GenConfig(max_depth_cap=args.depth, min_digits=1, max_digits=args.digits, seed=args.seed))
             for _ in range(args.num_tests):
                 sample = next(sampler)
-                expr = sample.expr
-                ok = evaluateModel(model, expr, max_len=100, print_result=True, print_correct=False, vocab=vocab)
+                ok = evaluateModel(model, sample.exprBigEndian, max_len=2048, print_result=True, print_correct=False, vocab=vocab)
                 if ok:
                     correct_count += 1
             print(f"Total: {args.num_tests}, Correct: {correct_count}, Accuracy: {correct_count/args.num_tests:.2%}")
