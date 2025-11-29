@@ -15,7 +15,7 @@ import math
 from src.model import AutoRegressiveTransformerModel
 from src.prepare_data import MathExprDataset, build_vocab, collate_fn_autoregressive
 
-from src.modelparam import NInp, NHead, NHid, NLayers, Dropout
+from src.modelparam import NInp, NHead, NHid, NLayers, Dropout, modelhash
 from torch.nn.utils import clip_grad_norm_
 from src.evaluate import evaluateModel
 
@@ -24,7 +24,7 @@ def train(args):
     print(f"Using device: {device}")
 
     vocab = build_vocab()
-    pad_value = vocab['<pad>']
+    pad_value = vocab['<scratchpad>']
     NTokens = len(vocab)
 
     model = AutoRegressiveTransformerModel(NTokens, NInp, NHead, NHid, NLayers, Dropout).to(device)
@@ -33,7 +33,7 @@ def train(args):
 
     depth = args.max_depth
     digits = args.max_digits
-    epochs = args.epochs
+    steps = args.steps
 
     if args.practice:
         train_print = True
@@ -46,7 +46,7 @@ def train(args):
         train_num = args.num_examples
         train_batch = args.batch_size
 
-    total_steps = epochs * math.ceil(train_num / train_batch)
+    total_steps = steps * math.ceil(train_num / train_batch)
     warmup_steps = int(total_steps * args.warmup_ratio)
     min_lr = args.min_lr
 
@@ -65,76 +65,57 @@ def train(args):
     if args.scheduler == 'cosine':
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 
-    step = 1
+    # load checkpoint if exists
+    if args.checkpoint:
+        try:
+            model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+            print(f"Loaded checkpoint from {args.checkpoint}")
+        except FileNotFoundError:
+            print(f"No checkpoint found at {args.checkpoint}, starting fresh.")
+
     # Wrap epoch iterator with tqdm unless disabled
-    epoch_iter = range(epochs)
-    if not args.no_progress:
-        epoch_iter = tqdm(epoch_iter, desc=f"Epochs", leave=True)
+    step_iter = range(steps)
+    step_iter = tqdm(step_iter, desc=f"Steps", leave=True)
 
-    dataset = MathExprDataset(vocab, num_examples=train_num, depth=depth, max_digits=digits)
-    dataloader = DataLoader(dataset, batch_size=train_batch, shuffle=True, collate_fn=lambda b: collate_fn_autoregressive(b, pad_value))
+    for step in step_iter:
 
-    for epoch in epoch_iter:
+        dataset = MathExprDataset(vocab, num_examples=train_num, depth=depth, max_digits=digits, seed=step)
+        dataloader = DataLoader(dataset, batch_size=train_batch, shuffle=True, collate_fn=lambda b: collate_fn_autoregressive(b, pad_value))
 
-        if epoch < 5:
-            dataset.depth = 1
-        elif epoch < 10:
-            dataset.depth = 2
-        else:
-            dataset.depth = depth
+        checkpoint_path = f"checkpoints/model{modelhash()}_step{step}.pt"
 
-        model_loaded = False
-        checkpoint_path = f"checkpoints/model_depth{depth}_digits{digits}_step{step}.pt"
-        if args.skip_pretrained:
-            try:
-                model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-                print(f"Loaded checkpoint from {checkpoint_path}")
-                model_loaded = True
-            except FileNotFoundError:
-                print(f"No checkpoint found at {checkpoint_path}, starting fresh.")
+        batch_iter = tqdm(dataloader, desc=f"Train step {step}/{steps}", leave=False)
 
-        avg_loss = 0.0
-        if not model_loaded:
-            # no model loaded, train from scratch
-            # print(f"Training (autoregressive) digits={digits}, depth={depth}")
+        model.train()
+        step_loss = 0
 
-            if not args.no_progress:
-                epoch_loss = 0
-                batch_iter = tqdm(dataloader, desc=f"Train epoch {epoch+1}/{epochs}", leave=False)
-            else:
-                epoch_loss = 0
-                batch_iter = dataloader
-
-            model.train()
-            for batch_idx, batch in enumerate(batch_iter):
-                optimizer.zero_grad()
-                # batch: (B, T)
-                seq = batch.to(device)
-                logits = model(seq[:, :-1])  # (B, T-1, V)
-                loss = criterion(logits.reshape(-1, NTokens), seq[:, 1:].reshape(-1))
-                # NaN
-                if loss.isnan().any():
-                    print("NaN loss encountered, skipping batch.")
-                    continue
-                loss.backward()
-                grad_norm = None
-                if args.grad_clip > 0:
-                    grad_norm = clip_grad_norm_(model.parameters(), args.grad_clip)
-                optimizer.step()
-                if scheduler:
-                    scheduler.step()
-                epoch_loss += loss.item()
-                if not args.no_progress and hasattr(batch_iter, 'set_postfix') and batch_idx % 10 == 0:
-                    try:
-                        current_lr = optimizer.param_groups[0]['lr']
-                        postfix = { 'loss': f"{loss.item():.4f}", 'lr': f"{current_lr:.2e}" }
-                        if grad_norm is not None:
-                            postfix['gnorm'] = f"{float(grad_norm):.2f}"
-                        batch_iter.set_postfix(**postfix)
-                    except Exception:
-                        pass
-            avg_loss = epoch_loss/len(dataloader)
+        for batch_idx, batch in enumerate(batch_iter):
+            optimizer.zero_grad()
+            # batch: (B, T)
+            seq = batch.to(device)
+            logits = model(seq[:, :-1])  # (B, T-1, V)
+            loss = criterion(logits.reshape(-1, NTokens), seq[:, 1:].reshape(-1))
+            # NaN
+            if loss.isnan().any():
+                print("NaN loss encountered, skipping batch.")
+                continue
+            loss.backward()
+            grad_norm = None
+            if args.grad_clip > 0:
+                grad_norm = clip_grad_norm_(model.parameters(), args.grad_clip)
+            optimizer.step()
+            if scheduler:
+                scheduler.step()
+            step_loss += loss.item()
+            if batch_idx % 10 == 0:
+                current_lr = optimizer.param_groups[0]['lr']
+                postfix = { 'loss': f"{loss.item():.4f}", 'lr': f"{current_lr:.2e}" }
+                if grad_norm is not None:
+                    postfix['gnorm'] = f"{float(grad_norm):.2f}"
+                batch_iter.set_postfix(**postfix)
         
+        avg_loss = step_loss/len(dataloader)
+    
         correct_count = 0
         total_count = 0
         if args.step_eval:
@@ -153,25 +134,17 @@ def train(args):
                     correct_count += 1
 
         eval_acc = correct_count/total_count if total_count else 0.0
-        if args.no_progress:
-            current_lr = optimizer.param_groups[0]['lr']
-            print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.2e} acc {eval_acc:.2%}")
-        else:
-            if hasattr(epoch_iter, 'set_postfix'):
-                try:
-                    current_lr = optimizer.param_groups[0]['lr']
-                    epoch_iter.set_postfix(loss=f"{avg_loss:.4f}", lr=f"{current_lr:.2e}", acc=f"{eval_acc:.2%}")
-                except Exception:
-                    pass
+        current_lr = optimizer.param_groups[0]['lr']
+        step_iter.set_postfix(loss=f"{avg_loss:.4f}", lr=f"{current_lr:.2e}", acc=f"{eval_acc:.2%}")
 
         # CSV logging per epoch
-        if args.log_csv and not model_loaded:
+        if args.log_csv:
             write_training_log(args.log_csv, {
                 'phase':'train',
                 'depth':depth,
                 'digits':digits,
-                'epoch':epoch+1,
-                'epochs':epochs,
+                'step':step,
+                'steps':steps,
                 'loss':avg_loss,
                 'lr':optimizer.param_groups[0]['lr'],
                 'eval_100_correct':correct_count,
@@ -184,7 +157,7 @@ def train(args):
         
         # Save checkpoint after each digit-depth combination
         if not model_loaded:
-            checkpoint_path = f"checkpoints/model_depth{depth}_digits{digits}_step{step}.pt"
+            checkpoint_path = f"checkpoints/model{modelhash()}_step{step}.pt"
             torch.save(model.state_dict(), checkpoint_path)
 
         step += 1
@@ -192,29 +165,27 @@ def train(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train the MathFormer autoregressive model.')
-    parser.add_argument('--epochs', type=int, default=10, help='Base number of epochs (scaled by difficulty).')
+    parser.add_argument('--steps', type=int, default=10, help='Base number of steps (scaled by difficulty).')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate.')
     parser.add_argument('--batch_size', type=int, default=128, help='Batch size.')
     parser.add_argument('--num_examples', type=int, default=10000, help='Examples per (depth,digits) combination.')
     parser.add_argument('--practice', action='store_true', help='Use smaller dataset for quick smoke test.')
-    parser.add_argument('--skip_pretrained', default=False, action='store_true', help='Load checkpoint if exists instead of training.')
     parser.add_argument('--max_digits', type=int, default=3)
     parser.add_argument('--max_depth', type=int, default=3)
     parser.add_argument('--train_print', default=False, action='store_true')
     parser.add_argument('--train_print_correct', default=False, action='store_true')
-    parser.add_argument('--epoch_scale', type=float, default=1)
-    parser.add_argument('--no-progress', dest='no_progress', action='store_true')
     parser.add_argument('--log_csv', type=str, default='')
     parser.add_argument('--scheduler', type=str, default='cosine', choices=['cosine','none'], help='LR scheduler type.')
     parser.add_argument('--warmup-ratio', type=float, default=0.05, help='Fraction of total steps used for linear warmup.')
     parser.add_argument('--min-lr', type=float, default=1e-5, help='Final minimum learning rate for cosine decay.')
     parser.add_argument('--step_eval', default=False, action='store_true', help='Evaluate on 100 samples after each epoch.')
     parser.add_argument('--grad_clip', type=float, default=1.0, help='Clip gradient norm to this value (0 disables).')
+    parser.add_argument('--checkpoint', type=str, default='')
     args = parser.parse_args()
 
     def write_training_log(path, row_dict):
         os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-        header = ['phase','depth','digits','epoch','epochs','loss','eval_100_correct','eval_100_total','eval_100_acc','exam_type','grad_clip','grad_norm']
+        header = ['phase','depth','digits','step','steps','loss','eval_100_correct','eval_100_total','eval_100_acc','exam_type','grad_clip','grad_norm']
         file_exists = os.path.isfile(path)
         with open(path, 'a', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=header)
