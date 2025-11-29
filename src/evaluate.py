@@ -108,7 +108,7 @@ def evaluateModel(model, expression: str, max_len=2048, print_result=True, print
     scratchpad_part, result_part = split_scratchpad_and_result(full_seq)
     correct = check_correctness(expression, result_part)
     if print_result or (print_correct and correct):
-        print(f" {'OK' if correct else 'NG'} : scratch {scratchpad_part} answer {result_part}")
+        print(f" {'OK' if correct else 'NG'} : expr {expression} scratch {scratchpad_part} answer {result_part}")
     return correct
 
 
