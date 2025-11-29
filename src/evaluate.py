@@ -70,9 +70,9 @@ def score_correctness(expression: str, scratchpad: str, predicted_result: str) -
 def split_scratchpad_and_result(generated_seq: str) -> tuple[str, str]:
     """Split generated sequence into scratchpad part and result part.
 
-    Expects format like: "... [scratchpad]; result"
+    Expects format like: "<sos>expr<scratchpad>scratchpad(optional)<answer>result<eos>"
     If no scratchpad, returns ("", result)
-    """
+    """ 
     # Handle new format with <scratchpad> and <answer>
     if '<answer>' in generated_seq:
         parts = generated_seq.split('<answer>')
