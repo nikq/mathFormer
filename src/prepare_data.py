@@ -26,7 +26,6 @@ class MathExprDataset(Dataset):
                 prob_little_endian: float = 0.5,
                 prob_scratchpad_full: float = 0.3,
                 prob_scratchpad_carry: float = 0.3,
-                prob_scratchpad_muldiv: float = 0.3,
                 seed = 42):
         self.vocab = vocab
         self.num_examples = num_examples
@@ -40,8 +39,7 @@ class MathExprDataset(Dataset):
             seed=seed,
             prob_little_endian=prob_little_endian,
             prob_scratchpad_full=prob_scratchpad_full,
-            prob_scratchpad_carry=prob_scratchpad_carry,
-            prob_scratchpad_muldiv=prob_scratchpad_muldiv)
+            prob_scratchpad_carry=prob_scratchpad_carry)
         self.gen = stream_samples(self.gen_cfg)
 
     def __len__(self):
@@ -69,8 +67,9 @@ class MathExprDataset(Dataset):
         tokens_scratchpad = self.str_to_token(sample.scratch)
         tokens_result = self.str_to_token(sample.result)
         tokens.extend(tokens_expr)
-        tokens.append(self.vocab['<scratchpad>'])
-        tokens.extend(tokens_scratchpad)
+        if sample.scratch != "":
+            tokens.append(self.vocab['<scratchpad>'])
+            tokens.extend(tokens_scratchpad)
         tokens.append(self.vocab['<answer>'])
         tokens.extend(tokens_result)
         tokens.append(self.vocab['<eos>'])

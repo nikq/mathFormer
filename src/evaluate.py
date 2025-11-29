@@ -91,7 +91,7 @@ def split_scratchpad_and_result(generated_seq: str) -> tuple[str, str]:
         result_part = generated_seq.strip()
     return scratchpad_part, result_part
 
-def evaluateModel(model, expression: str, max_len=2048, print_result=True, print_correct=True, vocab=None):
+def evaluateModel(model, expression: str, max_len=256, print_result=True, print_correct=True, vocab=None):
     if vocab is None:
         vocab = build_vocab()
     inv_vocab = {i: char for char, i in vocab.items()}
@@ -175,14 +175,14 @@ def main():
             sampler = stream_samples(GenConfig(max_depth_cap=args.depth, min_digits=1, max_digits=args.digits, seed=args.seed))
             for _ in range(args.num_tests):
                 sample = next(sampler)
-                ok = evaluateModel(model, sample.exprBigEndian, max_len=2048, print_result=True, print_correct=False, vocab=vocab)
+                ok = evaluateModel(model, sample.exprBigEndian, max_len=256, print_result=True, print_correct=False, vocab=vocab)
                 if ok:
                     correct_count += 1
             print(f"Total: {args.num_tests}, Correct: {correct_count}, Accuracy: {correct_count/args.num_tests:.2%}")
         else:
-            evaluateModel(model, args.expression, max_len=2048, vocab=vocab)
+            evaluateModel(model, args.expression, max_len=256, vocab=vocab)
     else:
-        evaluate(args.expression, max_len=2048)
+        evaluate(args.expression, max_len=256)
 
 if __name__ == '__main__':
     main()
