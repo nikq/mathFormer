@@ -493,6 +493,7 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
     r = random.random()
 
     scratch = ""
+    scratchpad_mode = 'none'
     if random.random() < cfg.prob_scratchpad:
         # 繰り上がりモードは足し算のLeafノード同士の場合のみ適用
         if isinstance(tree, OpNode) and isinstance(tree.left, Leaf) and isinstance(tree.right, Leaf):
