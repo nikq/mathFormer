@@ -20,6 +20,7 @@ import math
 from fractions import Fraction
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple, Iterator, Set
+from unittest import case
 
 
 # ====== コンフィグ ======
@@ -29,8 +30,7 @@ class GenConfig:
     min_digits: int = 1
     max_digits: int = 2
     operators: Set[str] = field(default_factory=lambda: {'+', '-', '*', '/'})  # 出現する演算子
-    prob_scratchpad_full: float = 0.3       # フルスクラッチの確率
-    prob_scratchpad_carry: float = 0.3      # 繰り上がりスクラッチの確率
+    prob_scratchpad: float = 0.3      # スクラッチパッドの確率
     prob_little_endian: float = 0.5         # リトルエンディアンの確率
     dedup_window: int = 100
     seed: Optional[int] = None
@@ -473,8 +473,6 @@ def sample_digits(min_digits: int, max_digits: int, p_tail: float=0.15) -> Tuple
 def generate_sample(cfg: GenConfig) -> GeneratorResult:
     depth = sample_depth(cfg.max_depth_cap)
     min_d, max_d = sample_digits(cfg.min_digits, cfg.max_digits)
-    prob_full = cfg.prob_scratchpad_full
-    prob_carry = cfg.prob_scratchpad_carry
     
     endian = 'little' if random.random() < cfg.prob_little_endian else 'big'
     ctx = GenerationContext(endian=endian)
@@ -493,42 +491,32 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
 
     # スクラッチパッドモードを選択（3種類: none, full, carry）
     r = random.random()
-    scratchpad_mode = "none"
-    if depth > 1 and r < prob_full:
-        scratchpad_mode = "full"
-    elif r < prob_carry:
-        scratchpad_mode = "carry"
 
     scratch = ""
-    if scratchpad_mode == "full":
-        scratch = full_scratch(tree, ctx)
-    elif scratchpad_mode == "carry":
+    if random.random() < cfg.prob_scratchpad:
         # 繰り上がりモードは足し算のLeafノード同士の場合のみ適用
-        if isinstance(tree, OpNode) and tree.op == '+' and isinstance(tree.left, Leaf) and isinstance(tree.right, Leaf):
+        if isinstance(tree, OpNode) and isinstance(tree.left, Leaf) and isinstance(tree.right, Leaf):
             left_val = tree.left.value
             right_val = tree.right.value
-            steps = addition_with_carry(left_val, right_val, ctx)
-            if steps:
+            match tree.op:
+                case '+':
+                    steps = addition_with_carry(left_val, right_val, ctx)
+                case '-':  
+                    steps = subtraction_with_borrow(left_val, right_val, ctx)
+                case '*':
+                    steps = multiplication_partial(left_val, right_val, ctx)
+                case '/':
+                    steps = division_partial(left_val, right_val, ctx)
+                case _:
+                    pass
+            if steps is not None:
                 scratch = ", ".join(steps)
-        # 繰り上がりモードは足し算のLeafノード同士の場合のみ適用
-        if isinstance(tree, OpNode) and tree.op == '-' and isinstance(tree.left, Leaf) and isinstance(tree.right, Leaf):
-            left_val = tree.left.value
-            right_val = tree.right.value
-            steps = subtraction_with_borrow(left_val, right_val, ctx)
-            if steps:
-                scratch = ", ".join(steps)
-        if isinstance(tree, OpNode) and tree.op == '*' and isinstance(tree.left, Leaf) and isinstance(tree.right, Leaf):
-            left_val = tree.left.value
-            right_val = tree.right.value
-            steps = multiplication_partial(left_val, right_val, ctx)
-            if steps:
-                scratch = ", ".join(steps)
-        if isinstance(tree, OpNode) and tree.op == '/' and isinstance(tree.left, Leaf) and isinstance(tree.right, Leaf):
-            left_val = tree.left.value
-            right_val = tree.right.value
-            steps = division_partial(left_val, right_val, ctx)
-            if steps:
-                scratch = ", ".join(steps)
+                scratchpad_mode = f'partial_{tree.op}'
+        else:
+            scratch = full_scratch(tree, ctx)
+            scratchpad_mode = 'full'
+    else:
+        scratchpad_mode = 'none'
     
     model_input = expr
 
@@ -577,7 +565,7 @@ def stream_samples(cfg: GenConfig) -> Iterator[GeneratorResult]:
 # ====== 使い方デモ ======
 def demo(n: int = 1, cfg: GenConfig | None = None) -> None:
     if cfg is None:
-        cfg = GenConfig(max_depth_cap=4, min_digits=1, max_digits=3, seed=42, prob_scratchpad_full=1.0)
+        cfg = GenConfig(max_depth_cap=4, min_digits=1, max_digits=3, seed=42, prob_scratchpad=1.0)
     gen = stream_samples(cfg)
     for i in range(n):
         s = next(gen)
@@ -592,8 +580,7 @@ def main():
     parser.add_argument('--min-digits', type=int, default=1)
     parser.add_argument('--max-digits', type=int, default=3)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--prob-full', type=float, default=0.3)
-    parser.add_argument('--prob-carry', type=float, default=0.3)
+    parser.add_argument('--prob-scratchpad', type=float, default=0.3)
     parser.add_argument('--prob-little-endian', type=float, default=0.5)
     parser.add_argument('--operators', type=str, default='+-*/')
     args = parser.parse_args()
@@ -601,8 +588,7 @@ def main():
                     min_digits=args.min_digits,
                     max_digits=args.max_digits,
                     seed=args.seed,
-                    prob_scratchpad_full=args.prob_full,
-                    prob_scratchpad_carry=args.prob_carry,
+                    prob_scratchpad=args.prob_scratchpad,
                     prob_little_endian=args.prob_little_endian,
                     operators=set(args.operators))
     demo(args.num, cfg)

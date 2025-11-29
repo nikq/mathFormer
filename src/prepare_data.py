@@ -24,8 +24,7 @@ class MathExprDataset(Dataset):
                 depth: int = 3,
                 max_digits: int = 2,
                 prob_little_endian: float = 0.5,
-                prob_scratchpad_full: float = 0.3,
-                prob_scratchpad_carry: float = 0.3,
+                prob_scratchpad: float = 0.5,
                 seed = 42):
         self.vocab = vocab
         self.num_examples = num_examples
@@ -38,8 +37,7 @@ class MathExprDataset(Dataset):
             max_digits=max_digits,
             seed=seed,
             prob_little_endian=prob_little_endian,
-            prob_scratchpad_full=prob_scratchpad_full,
-            prob_scratchpad_carry=prob_scratchpad_carry)
+            prob_scratchpad=prob_scratchpad)
         self.gen = stream_samples(self.gen_cfg)
 
     def __len__(self):
