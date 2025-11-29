@@ -5,9 +5,10 @@ class TestGenerateData(unittest.TestCase):
     def test_generate_sample(self):
         cfg = GenConfig(max_depth_cap=4, min_digits=1, max_digits=2, seed=123)
         sample = generate_sample(cfg)
-        expr = sample['expr']
-        result = sample['result']
-        target = sample['target']
+        expr = sample.expr
+        result = sample.result
+        scratch = sample.scratch
+        target = scratch + result # reconstructing target for check
         self.assertIsInstance(expr, str)
         self.assertIsInstance(result, str)
         self.assertIsInstance(target, str)

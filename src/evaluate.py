@@ -73,16 +73,18 @@ def split_scratchpad_and_result(generated_seq: str) -> tuple[str, str]:
     Expects format like: "... [scratchpad]; result"
     If no scratchpad, returns ("", result)
     """
-    if ';' in generated_seq:
-        parts = generated_seq.rsplit(';', 1)
-        before_semicolon = parts[0]
-        result_part = parts[1].strip()
-        if '[' in before_semicolon and ']' in before_semicolon:
-            scratchpad_start = before_semicolon.rfind('[')
-            scratchpad_end = before_semicolon.rfind(']')
-            scratchpad_part = before_semicolon[scratchpad_start+1:scratchpad_end].strip()
+    # Handle new format with <scratchpad> and <answer>
+    if '<answer>' in generated_seq:
+        parts = generated_seq.split('<answer>')
+        before_answer = parts[0]
+        result_part = parts[1].split('<eos>')[0].strip()
+        
+        if '<scratchpad>' in before_answer:
+            scratchpad_part = before_answer.split('<scratchpad>')[1].strip()
         else:
             scratchpad_part = ""
+        return scratchpad_part, result_part
+
     else:
         # No semicolon found, treat entire as result
         scratchpad_part = ""
@@ -94,8 +96,10 @@ def evaluateModel(model, expression: str, max_len=50, print_result=True, print_c
         vocab = build_vocab()
     inv_vocab = {i: char for char, i in vocab.items()}
 
-    prompt_str = f'{expression} ['
-    prompt = [vocab['<sos>']] + [vocab[c] for c in prompt_str]
+    # Use <scratchpad> if available in vocab, otherwise fallback to [
+    prompt_str = f'{expression}'
+    prompt = [vocab['<sos>']] + [vocab['<big>']] + [vocab[c] for c in expression] + [vocab['<scratchpad>']] # Assume big endian for eval
+    
     prompt_tensor = torch.tensor(prompt, dtype=torch.long).to(device)
     with torch.no_grad():
         generated = model.generate(prompt_tensor, max_new_tokens=max_len, eos_token=vocab['<eos>'])  # (T_total,)
@@ -171,7 +175,7 @@ def main():
             sampler = stream_samples(GenConfig(max_depth_cap=args.depth, min_digits=1, max_digits=args.digits, seed=args.seed))
             for _ in range(args.num_tests):
                 sample = next(sampler)
-                expr = sample['expr']
+                expr = sample.expr
                 ok = evaluateModel(model, expr, max_len=100, print_result=True, print_correct=False, vocab=vocab)
                 if ok:
                     correct_count += 1
