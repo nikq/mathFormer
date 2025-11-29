@@ -91,7 +91,7 @@ def split_scratchpad_and_result(generated_seq: str) -> tuple[str, str]:
         result_part = generated_seq.strip()
     return scratchpad_part, result_part
 
-def evaluateModel(model, expression: str, max_len=50, print_result=True, print_correct=True, vocab=None):
+def evaluateModel(model, expression: str, max_len=2048, print_result=True, print_correct=True, vocab=None):
     if vocab is None:
         vocab = build_vocab()
     inv_vocab = {i: char for char, i in vocab.items()}
@@ -108,7 +108,7 @@ def evaluateModel(model, expression: str, max_len=50, print_result=True, print_c
     scratchpad_part, result_part = split_scratchpad_and_result(full_seq)
     correct = check_correctness(expression, result_part)
     if print_result or (print_correct and correct):
-        print(f" {'OK' if correct else 'NG'} : {full_seq}")
+        print(f" {'OK' if correct else 'NG'} : scratch {scratchpad_part} answer {result_part}")
     return correct
 
 
@@ -180,9 +180,9 @@ def main():
                     correct_count += 1
             print(f"Total: {args.num_tests}, Correct: {correct_count}, Accuracy: {correct_count/args.num_tests:.2%}")
         else:
-            evaluateModel(model, args.expression, max_len=100, vocab=vocab)
+            evaluateModel(model, args.expression, max_len=2048, vocab=vocab)
     else:
-        evaluate(args.expression, max_len=100)
+        evaluate(args.expression, max_len=2048)
 
 if __name__ == '__main__':
     main()
