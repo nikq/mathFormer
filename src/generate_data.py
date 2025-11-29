@@ -31,9 +31,7 @@ class GenConfig:
     operators: Set[str] = field(default_factory=lambda: {'+', '-', '*', '/'})  # 出現する演算子
     prob_scratchpad_full: float = 0.3       # フルスクラッチの確率
     prob_scratchpad_carry: float = 0.3      # 繰り上がりスクラッチの確率
-    prob_scratchpad_muldiv: float = 0.3     # 乗除法スクラッチの確率
     prob_little_endian: float = 0.5         # リトルエンディアンの確率
-    verifier_ratio: float = 0.05
     dedup_window: int = 100
     seed: Optional[int] = None
 
@@ -477,7 +475,6 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
     min_d, max_d = sample_digits(cfg.min_digits, cfg.max_digits)
     prob_full = cfg.prob_scratchpad_full
     prob_carry = cfg.prob_scratchpad_carry
-    prob_muldiv = cfg.prob_scratchpad_muldiv
     
     endian = 'little' if random.random() < cfg.prob_little_endian else 'big'
     ctx = GenerationContext(endian=endian)
@@ -497,12 +494,10 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
     # スクラッチパッドモードを選択（3種類: none, full, carry）
     r = random.random()
     scratchpad_mode = "none"
-    if r < prob_full:
+    if depth > 1 and r < prob_full:
         scratchpad_mode = "full"
-    elif r < prob_full + prob_carry:
+    elif r < prob_carry:
         scratchpad_mode = "carry"
-    elif r < prob_full + prob_carry + prob_muldiv:
-        scratchpad_mode = "muldiv"
 
     scratch = ""
     if scratchpad_mode == "full":
@@ -522,7 +517,6 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
             steps = subtraction_with_borrow(left_val, right_val, ctx)
             if steps:
                 scratch = ", ".join(steps)
-    elif scratchpad_mode == "muldiv":
         if isinstance(tree, OpNode) and tree.op == '*' and isinstance(tree.left, Leaf) and isinstance(tree.right, Leaf):
             left_val = tree.left.value
             right_val = tree.right.value
@@ -600,12 +594,14 @@ def main():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--prob-full', type=float, default=0.3)
     parser.add_argument('--prob-carry', type=float, default=0.3)
-    parser.add_argument('--prob-muldiv', type=float, default=0.3)
     parser.add_argument('--prob-little-endian', type=float, default=0.5)
     parser.add_argument('--operators', type=str, default='+-*/')
     args = parser.parse_args()
-    cfg = GenConfig(max_depth_cap=args.max_depth, min_digits=args.min_digits, max_digits=args.max_digits,
-                    seed=args.seed, prob_scratchpad_full=args.prob_full,
+    cfg = GenConfig(max_depth_cap=args.max_depth,
+                    min_digits=args.min_digits,
+                    max_digits=args.max_digits,
+                    seed=args.seed,
+                    prob_scratchpad_full=args.prob_full,
                     prob_scratchpad_carry=args.prob_carry,
                     prob_little_endian=args.prob_little_endian,
                     operators=set(args.operators))
