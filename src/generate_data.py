@@ -73,6 +73,7 @@ class GeneratorResult:
     input: str               # モデルへの入力式
     scratch: str             # スクラッチパッドのステップ（使用しない場合は空文字列）
     expr: str                # 式の文字列（inputと同じ）
+    exprBigEndian: str       # 式の文字列（big-endian）
     result: str              # 数値結果の文字列表現
     hash: int                # 式ツリーの正規ハッシュ
     context: GenerationContext  # 生成時のコンテキスト
@@ -490,6 +491,7 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
             continue
 
     expr = to_string(tree, ctx)
+    exprBigEndian = to_string(tree, GenerationContext(endian='big'))
     norm_hash = canonical_hash(tree)
 
     # スクラッチパッドモードを選択（3種類: none, full, carry）
@@ -540,6 +542,7 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
         input=model_input,
         scratch=scratch,
         expr=expr,
+        exprBigEndian=exprBigEndian,
         result=str(result),
         hash=norm_hash,
         context=ctx,

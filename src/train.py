@@ -127,8 +127,7 @@ def train(args):
             for i in range(100):
                 # Generate a fresh sample and evaluate expression part
                 sample = next(stream)
-                expr = sample.expr
-                correct = evaluateModel(model, expr, print_result=train_print, print_correct=train_print_correct)
+                correct = evaluateModel(model, sample.exprBigEndian, print_result=train_print, print_correct=train_print_correct)
                 total_count += 1
                 if correct:
                     correct_count += 1
