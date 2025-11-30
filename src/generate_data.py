@@ -246,24 +246,28 @@ def subtraction_with_borrow(left_val: int, right_val: int, ctx: GenerationContex
     # 負の数の引き算は足し算に変換
     if right_val < 0:
         # -3 - -4 = -3 + 4
-        steps.append(f"{left_val}-{right_val}={left_val}+{-right_val}")
+        steps.append(f"{left_val}-({right_val})={left_val}+{-right_val}")
         add_steps = addition_with_carry(left_val, -right_val, ctx)
-        steps.extend(add_steps)
+        if add_steps:
+            steps.extend(add_steps)
         return steps
 
-    # 左が負の数の場合は右を足し算に変換
+    # 左が負の数の場合
     if left_val < 0:
         # -3 - 4 = -(3+4) = -7
         steps.append(f"{left_val}-{right_val}=-({-left_val}+{right_val})")
         addition_partial = addition_with_carry(-left_val, right_val, ctx)
-        steps.extend(addition_partial)
+        if addition_partial:
+            steps.extend(addition_partial)
+        steps.append(f"-({-left_val}+{right_val})={left_val-right_val}")
         return steps
 
     if right_val > left_val:
-        # 58 - 430 = -(430-58)
+        # 58 - 430 = -(430-58) = -372
         steps.append(f"{left_val}-{right_val}=-({right_val}-{left_val})")
-        addition_partial = subtraction_with_borrow(right_val, left_val, ctx)
-        steps.extend(addition_partial)
+        sub_partial = subtraction_with_borrow(right_val, left_val, ctx)
+        if sub_partial:
+            steps.extend(sub_partial)
         steps.append(f"-({right_val}-{left_val})={left_val-right_val}")
         return steps
 
@@ -288,23 +292,25 @@ def subtraction_with_borrow(left_val: int, right_val: int, ctx: GenerationContex
     borrow = 0
     
     for i in range(max_len):
-        digit_diff = left_digits[i] - right_digits[i] + borrow
-        new_borrow = digit_diff // 10
+        digit_diff = left_digits[i] - right_digits[i]
+        new_borrow = 0
+        
+        if digit_diff < 0:
+            steps.append(f"borrow 1")
+            digit_diff += 10
+            left_digits[i] += 10
+            left_digits[i+1] -= 1
+            new_borrow = 1
 
         step = f"{left_digits[i]}"
         terms = 1
         if right_digits[i] > 0:
             step += f"-{right_digits[i]}"
             terms += 1
-        if borrow < 0:
-            step += f"-{-borrow}"
-            terms += 1
         step += f"={digit_diff}"
         if terms > 1:
             steps.append(step)
 
-        if new_borrow < 0:
-            steps.append(f"borrow {new_borrow}")
         borrow = new_borrow
     if max_len > 1:
         steps.append(f"{left_val}-{right_val}={left_val-right_val}")
