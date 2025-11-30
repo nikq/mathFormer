@@ -24,7 +24,7 @@ class ModelParam:
                 NTokens=self.NTokens,
                 NInp=32,
                 NHead=2,
-                NHid=64,
+                NHid=128,
                 NLayers=2,
                 Dropout=0.05
             )
@@ -34,7 +34,7 @@ class ModelParam:
                 NTokens=self.NTokens,
                 NInp=64,
                 NHead=4,
-                NHid=128,
+                NHid=256,
                 NLayers=4,
                 Dropout=0.05
             )
@@ -42,9 +42,9 @@ class ModelParam:
             self.setParam(
                 modelType=modelType,
                 NTokens=self.NTokens,
-                NInp=1024,
+                NInp=256,
                 NHead=8,
-                NHid=2048,
+                NHid=1024,
                 NLayers=8,
                 Dropout=0.05
             )
