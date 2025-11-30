@@ -1,13 +1,5 @@
 class ModelParam:
 
-    def __init__(self, NTokens, NInp, NHead, NHid, NLayers, Dropout):
-        self.NTokens = NTokens
-        self.NInp = NInp
-        self.NHead = NHead
-        self.NHid = NHid
-        self.NLayers = NLayers
-        self.Dropout = Dropout
-
     def __init__(self, modelType: str, NTokens: int):
         self.NTokens = NTokens
         self.setup(modelType)
@@ -57,7 +49,7 @@ class ModelParam:
                 Dropout=0.05
             )
         else:
-            raise ValueError(f"Unknown model type: {model_type}")
+            raise ValueError(f"Unknown model type: {modelType}")
 
     def hash(self):
         return hash((self.NTokens, self.NInp, self.NHead, self.NHid, self.NLayers, self.Dropout))
