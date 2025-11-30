@@ -194,35 +194,6 @@ def canonical_hash(node: Node) -> int:
     return h
 
 
-# ====== フルスクラッチ（最下層から簡約） ======
-def full_scratch(node: Node, ctx: GenerationContext) -> str:
-    # 一番深いノードから定数にしていく
-    steps: List[str] = []
-    # print('Generating full scratchpad:' + to_string(node, ctx))
-
-    def helper(n: Node) -> Fraction:
-        if isinstance(n, Leaf):
-            return evaluate(n)
-        left_val = helper(n.left)
-        right_val = helper(n.right)
-        result = None
-        if n.op == '+':
-            result = left_val + right_val
-        elif n.op == '-':
-            result = left_val - right_val
-        elif n.op == '*':
-            result = left_val * right_val
-        elif n.op == '/':
-            if right_val == 0:
-                raise ZeroDivisionError
-            result = left_val / right_val
-        
-        step_str = f"{ctx.f(left_val)}{n.op}{ctx.f(right_val)}={ctx.f(result)}"
-        # print(f' . {step_str}')
-        steps.append(step_str)
-        return result
-    helper(node)
-    return ", ".join(steps)
 
 
 def number_to_str_digits(val: int, ctx: GenerationContext) -> List[int]:
@@ -242,11 +213,17 @@ def subtraction_with_borrow(left_val: int, right_val: int, ctx: GenerationContex
     if left_val == 0 or right_val == 0:
         return None
     
+    l_str = ctx.f(left_val)
+    r_str = ctx.f(right_val)
+    l_str_minus = ctx.f(-left_val)
+    r_str_minus = ctx.f(-right_val)
+    result_str = ctx.f(left_val - right_val)
+    
     steps = []
     # 負の数の引き算は足し算に変換
     if right_val < 0:
         # -3 - -4 = -3 + 4
-        steps.append(f"{left_val}-({right_val})={left_val}+{-right_val}")
+        steps.append(f"{l_str}-({r_str})={l_str}+{r_str_minus}")
         add_steps = addition_with_carry(left_val, -right_val, ctx)
         if add_steps:
             steps.extend(add_steps)
@@ -255,20 +232,20 @@ def subtraction_with_borrow(left_val: int, right_val: int, ctx: GenerationContex
     # 左が負の数の場合
     if left_val < 0:
         # -3 - 4 = -(3+4) = -7
-        steps.append(f"{left_val}-{right_val}=-({-left_val}+{right_val})")
+        steps.append(f"{l_str}-{r_str}=-({l_str_minus}+{r_str_minus})")
         addition_partial = addition_with_carry(-left_val, right_val, ctx)
         if addition_partial:
             steps.extend(addition_partial)
-        steps.append(f"-({-left_val}+{right_val})={left_val-right_val}")
+        steps.append(f"-({l_str_minus}+{r_str_minus})={result_str}")
         return steps
 
     if right_val > left_val:
         # 58 - 430 = -(430-58) = -372
-        steps.append(f"{left_val}-{right_val}=-({right_val}-{left_val})")
+        steps.append(f"{l_str}-{r_str}=-({r_str_minus}-{l_str_minus})")
         sub_partial = subtraction_with_borrow(right_val, left_val, ctx)
         if sub_partial:
             steps.extend(sub_partial)
-        steps.append(f"-({right_val}-{left_val})={left_val-right_val}")
+        steps.append(f"-({r_str_minus}-{l_str_minus})={result_str}")
         return steps
 
     left_digits = number_to_str_digits(left_val, ctx)
@@ -289,31 +266,27 @@ def subtraction_with_borrow(left_val: int, right_val: int, ctx: GenerationContex
     
     # 下の桁から順に引き算（繰り下がりを追跡）
     steps: List[str] = []
-    borrow = 0
     
     for i in range(max_len):
         digit_diff = left_digits[i] - right_digits[i]
-        new_borrow = 0
         
         if digit_diff < 0:
             steps.append(f"borrow 1")
             digit_diff += 10
             left_digits[i] += 10
             left_digits[i+1] -= 1
-            new_borrow = 1
 
         step = f"{left_digits[i]}"
         terms = 1
         if right_digits[i] > 0:
             step += f"-{right_digits[i]}"
             terms += 1
-        step += f"={digit_diff}"
+        step += f"={ctx.f(digit_diff)}"
         if terms > 1:
             steps.append(step)
 
-        borrow = new_borrow
     if max_len > 1:
-        steps.append(f"{left_val}-{right_val}={left_val-right_val}")
+        steps.append(f"{l_str}-{r_str}={result_str}")
     return steps
     
     
@@ -323,18 +296,25 @@ def addition_with_carry(left_val: int, right_val: int, ctx: GenerationContext) -
     
     例: 156+237 → "6+7=13 carry 1, 5+3+1=9, 1+2=3"
     """
+
+    l_str = ctx.f(left_val)
+    r_str = ctx.f(right_val)
+    l_str_minus = ctx.f(-left_val)
+    r_str_minus = ctx.f(-right_val)
+    result_str = ctx.f(left_val + right_val)
+
     # 0を含む場合は特に部分式は不要
     if left_val == 0 or right_val == 0:
         return None
 
     # 負の数を部分的に含む場合は引き算で返す
     if left_val < 0 and right_val>0:
-        step = [f"{left_val}+{right_val}={right_val}-{-left_val}"]
+        step = [f"{l_str}+{r_str}={r_str}-{l_str_minus}"]
         sub_steps = subtraction_with_borrow(right_val, -left_val,ctx)
         step.extend(sub_steps)
         return step
     if right_val < 0:
-        step = [f"{left_val}+{right_val}={left_val}-{-right_val}"]
+        step = [f"{l_str}+{r_str}={l_str}-{r_str_minus}"]
         sub_steps = subtraction_with_borrow(left_val, -right_val, ctx)
         step.extend(sub_steps)
         return step
@@ -381,9 +361,9 @@ def addition_with_carry(left_val: int, right_val: int, ctx: GenerationContext) -
         if carry > 0:
             if left_terms > 0:
                 step += "+"
-            step += f"{carry}"
+            step += f"{ctx.f(carry)}"
             left_terms += 1
-        step += f"={digit_sum}"
+        step += f"={ctx.f(digit_sum)}"
         
         if left_terms > 1:
             steps.append(step)
@@ -391,32 +371,106 @@ def addition_with_carry(left_val: int, right_val: int, ctx: GenerationContext) -
     
     # 最後の繰り上がりがあれば追加
     if max_len > 1:
-        steps.append(f"{left_val}+{right_val}={left_val+right_val}")
+        steps.append(f"{l_str}+{r_str}={result_str}")
     
     return steps
 
 # 割り算の部分式
 def division_partial(left_val: int, right_val: int, ctx: GenerationContext) -> str:
+    
     abs_r = right_val if right_val > 0 else -right_val
     abs_l = left_val if left_val > 0 else -left_val
 
+    l_str = ctx.f(left_val)
+    r_str = ctx.f(right_val)
+    abs_l_str = ctx.f(abs_l)
+    abs_r_str = ctx.f(abs_r)
+
+
     steps = []
     if left_val < 0 and right_val > 0:
-        steps.append(f"{left_val}/{right_val}=-({abs_l}/{abs_r})")
+        steps.append(f"{l_str}/{r_str}=-({abs_l_str}/{abs_r_str})")
     if left_val > 0 and right_val < 0:
-        steps.append(f"{left_val}/{right_val}=-({abs_l}/{abs_r})")
+        steps.append(f"{l_str}/{r_str}=-({abs_l_str}/{abs_r_str})")
     if left_val < 0 and right_val < 0:
-        steps.append(f"{left_val}/{right_val}={abs_l}/{abs_r}")
-
+        steps.append(f"{l_str}/{r_str}={abs_l_str}/{abs_r_str}")
     # 最大公約数を求める
     gcd = math.gcd(abs_l, abs_r)
+    gcd_str = ctx.f(gcd)
+    steps.append(f"gcd({abs_l_str},{abs_r_str})={gcd_str}")
     if gcd == 1:
-        steps.append(f"{abs_l} and {abs_r} are coprime")
         return steps
     # 最大公約数で割る
-    steps.append(f"{abs_l}={abs_l//gcd}*{gcd}")
-    steps.append(f"{abs_r}={abs_r//gcd}*{gcd}")
-    steps.append(f"{abs_l}/{abs_r}={abs_l//gcd}/{abs_r//gcd}")
+    steps.append(f"{abs_l_str}/{gcd_str}={ctx.f(abs_l//gcd)}")
+    steps.append(f"{abs_r_str}/{gcd_str}={ctx.f(abs_r//gcd)}")
+    steps.append(f"{abs_l_str}/{abs_r_str}={ctx.f(abs_l//gcd)}/{ctx.f(abs_r//gcd)}")
+    return steps
+
+
+# ====== 分数の通分（部分式） ======
+def _lcm(a: int, b: int) -> int:
+    return abs(a * b) // math.gcd(a, b) if a and b else 0
+
+
+def fraction_addition_partial(left_val: Fraction, right_val: Fraction, ctx: GenerationContext) -> List[str]:
+    # a/b + c/d -> 通分して計算、最後に約分
+    steps: List[str] = []
+    a, b = left_val.numerator, left_val.denominator
+    c, d = right_val.numerator, right_val.denominator
+
+    a_str = ctx.f(a)
+    b_str = ctx.f(b)
+    c_str = ctx.f(c)
+    d_str = ctx.f(d)
+
+    l = _lcm(b, d)
+    l_str = ctx.f(l)
+    if l == 0:
+        return [f"Cannot compute LCM for denominators {b} and {d}"]
+
+    a_scaled = a * (l // b)
+    c_scaled = c * (l // d)
+    steps.append(f"lcm({b_str},{d_str})={l_str}")
+    steps.append(f"{a_str}/{b_str}={ctx.f(a_scaled)}/{l_str}")
+    steps.append(f"{c_str}/{d_str}={ctx.f(c_scaled)}/{l_str}")
+    steps.append(f"{ctx.f(a_scaled)}+{ctx.f(c_scaled)}={ctx.f(a_scaled + c_scaled)}")
+    sum_num = a_scaled + c_scaled
+    g = math.gcd(sum_num, l)
+    if g != 1:
+        raw = Fraction(sum_num, l)
+        steps.append(f"{sum_num}/{l}={ctx.f(raw)}")
+    steps.append(f"{ctx.f(left_val)}+{ctx.f(right_val)}={ctx.f(left_val + right_val)}")
+    return steps
+
+
+def fraction_subtraction_partial(left_val: Fraction, right_val: Fraction, ctx: GenerationContext) -> List[str]:
+    # a/b - c/d -> 通分して計算、最後に約分
+    steps: List[str] = []
+    a, b = left_val.numerator, left_val.denominator
+    c, d = right_val.numerator, right_val.denominator
+
+    a_str = ctx.f(a)
+    b_str = ctx.f(b)
+    c_str = ctx.f(c)
+    d_str = ctx.f(d)
+
+    l = _lcm(b, d)
+    l_str = ctx.f(l)
+    if l == 0:
+        return [f"Cannot compute LCM for denominators {b} and {d}"]
+
+    a_scaled = a * (l // b)
+    c_scaled = c * (l // d)
+    steps.append(f"lcm({b_str},{d_str})={l_str}")
+    steps.append(f"{a_str}/{b_str}={ctx.f(a_scaled)}/{l_str}")
+    steps.append(f"{c_str}/{d_str}={ctx.f(c_scaled)}/{l_str}")
+    steps.append(f"{ctx.f(a_scaled)}-{ctx.f(c_scaled)}={ctx.f(a_scaled - c_scaled)}")
+    diff_num = a_scaled - c_scaled
+    g = math.gcd(abs(diff_num), l)
+    if g != 1:
+        raw = Fraction(diff_num, l)
+        steps.append(f"{diff_num}/{l}={ctx.f(raw)}")
+    steps.append(f'{ctx.f(left_val)}-{ctx.f(right_val)}={ctx.f(left_val - right_val)}')
     return steps
 
 # 乗算の部分式
@@ -435,28 +489,96 @@ def multiplication_partial(left_val: int, right_val: int, ctx: GenerationContext
     
     # 下の桁から順に乗算（繰り上がりを追跡）
     steps: List[str] = []
-    carry = 0
+
+    l_str = ctx.f(left_val)
+    r_str = ctx.f(right_val)
+    abs_l_str = ctx.f(abs_l)
+    abs_r_str = ctx.f(abs_r)
 
     # 負の扱い
     if left_val < 0 and right_val > 0:
-        steps.append(f"{left_val}*{right_val}=-({abs_l}*{abs_r})")
+        steps.append(f"{l_str}*{r_str}=-({abs_l_str}*{abs_r_str})")
     if left_val > 0 and right_val < 0:
-        steps.append(f"{left_val}*{right_val}=-({abs_l}*{-abs_r})")
+        steps.append(f"{l_str}*{r_str}=-({abs_l_str}*{abs_r_str})")
     if left_val < 0 and right_val < 0:
-        steps.append(f"{left_val}*{right_val}={abs_l}*{abs_r}")
-
+        steps.append(f"{l_str}*{r_str}={abs_l_str}*{abs_r_str}")
     intermediate = []
     for i in range(len(l_digits)):
-        step = f"{l_digits[i]}*{abs_r}={l_digits[i]*abs_r}"
+        step = f"{ctx.f(l_digits[i])}*{abs_r_str}={ctx.f(l_digits[i]*abs_r)}"
         intermediate.append(l_digits[i]*abs_r*10**i)
         steps.append(step)
 
     result = intermediate[0]
     for i in range(1, len(intermediate)):
-        step = f"{result}+{intermediate[i]}={result+intermediate[i]}"
+        step = f"{ctx.f(result)}+{ctx.f(intermediate[i])}={ctx.f(result+intermediate[i])}"
         result += intermediate[i]
         steps.append(step)
     return steps 
+
+
+# スクラッチパッドの生成
+def scratchpad(node: Node, cfg: GenConfig, ctx: GenerationContext) -> str:
+    # 一番深いノードから定数にしていく
+    steps: List[str] = []
+
+    def helper(n: Node) -> Fraction:
+        if random.random() > cfg.prob_scratchpad:
+            return evaluate(n)
+        # この先が四則演算なら部分式を展開
+        if isinstance(n, OpNode) and isinstance(n.left, Leaf) and isinstance(n.right, Leaf):
+            left_val = n.left.value
+            right_val = n.right.value
+            match n.op:
+                case '+':
+                    substeps = addition_with_carry(left_val, right_val, ctx)
+                case '-':  
+                    substeps = subtraction_with_borrow(left_val, right_val, ctx)
+                case '*':
+                    substeps = multiplication_partial(left_val, right_val, ctx)
+                case '/':
+                    substeps = division_partial(left_val, right_val, ctx)
+                case _:
+                    pass
+            if substeps is not None:
+                steps.extend(substeps)
+            return evaluate(n)
+        else:
+            if isinstance(n, Leaf):
+                return evaluate(n)
+            left_val = helper(n.left)
+            right_val = helper(n.right)
+            result = None
+            if n.op == '+':
+                result = left_val + right_val
+            elif n.op == '-':
+                result = left_val - right_val
+            elif n.op == '*':
+                result = left_val * right_val
+            elif n.op == '/':
+                if right_val == 0:
+                    raise ZeroDivisionError
+                result = left_val / right_val
+            
+            # 分数を含む加減算の場合、通分して詳細なサブステップを追加
+            if n.op in ('+', '-') and (isinstance(left_val, Fraction) or isinstance(right_val, Fraction)):
+                lv = left_val if isinstance(left_val, Fraction) else Fraction(left_val)
+                rv = right_val if isinstance(right_val, Fraction) else Fraction(right_val)
+                if left_val.denominator != 1 and right_val.denominator != 1:
+                    if n.op == '+':
+                        frac_steps = fraction_addition_partial(lv, rv, ctx)
+                    elif n.op == '-':
+                        frac_steps = fraction_subtraction_partial(lv, rv, ctx)
+                    if frac_steps is not None:
+                        steps.extend(frac_steps)
+                    # 最終結果の一行表示
+                step_str = f"{ctx.f(left_val)}{n.op}{ctx.f(right_val)}={ctx.f(result)}"
+                steps.append(step_str)
+            else:
+                step_str = f"{ctx.f(left_val)}{n.op}{ctx.f(right_val)}={ctx.f(result)}"
+                steps.append(step_str)
+            return result
+    helper(node)
+    return ", ".join(steps)
 
 
 # ====== サンプリング分布 ======
@@ -494,36 +616,7 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
     expr = to_string(tree, ctx)
     exprBigEndian = to_string(tree, GenerationContext(endian='big'))
     norm_hash = canonical_hash(tree)
-
-    # スクラッチパッドモードを選択（3種類: none, full, carry）
-    r = random.random()
-
-    scratch = ""
-    scratchpad_mode = 'none'
-    if random.random() < cfg.prob_scratchpad:
-        # 繰り上がりモードは足し算のLeafノード同士の場合のみ適用
-        if isinstance(tree, OpNode) and isinstance(tree.left, Leaf) and isinstance(tree.right, Leaf):
-            left_val = tree.left.value
-            right_val = tree.right.value
-            match tree.op:
-                case '+':
-                    steps = addition_with_carry(left_val, right_val, ctx)
-                case '-':  
-                    steps = subtraction_with_borrow(left_val, right_val, ctx)
-                case '*':
-                    steps = multiplication_partial(left_val, right_val, ctx)
-                case '/':
-                    steps = division_partial(left_val, right_val, ctx)
-                case _:
-                    pass
-            if steps is not None:
-                scratch = ", ".join(steps)
-                scratchpad_mode = f'partial_{tree.op}'
-        else:
-            scratch = full_scratch(tree, ctx)
-            scratchpad_mode = 'full'
-    else:
-        scratchpad_mode = 'none'
+    scratch = scratchpad(tree, cfg, ctx)
     
     model_input = expr
 
@@ -538,7 +631,6 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
         meta={
             "depth": depth,
             "digits": (min_d, max_d),
-            "scratchpad": scratchpad_mode,
             "endian": endian,
         },
     )
@@ -590,6 +682,7 @@ def main():
     parser.add_argument('--prob-scratchpad', type=float, default=0.3)
     parser.add_argument('--prob-little-endian', type=float, default=0.5)
     parser.add_argument('--operators', type=str, default='+-*/')
+    parser.add_argument('--expr', type=str, default=None, help='If given, only perform step decomposition on this expression.')
     args = parser.parse_args()
     cfg = GenConfig(max_depth_cap=args.max_depth,
                     min_digits=args.min_digits,
@@ -598,6 +691,47 @@ def main():
                     prob_scratchpad=args.prob_scratchpad,
                     prob_little_endian=args.prob_little_endian,
                     operators=set(args.operators))
+    
+    # もし式が与えられた場合はステップ分解だけを実行
+    if args.expr is not None:
+        def parse_expression(expr: str) -> Node:
+            # 簡易的なパーサー（完全なものではない）
+            tokens = []
+            num = ''
+            for ch in expr:
+                if ch.isdigit() or (ch == '-' and not num):
+                    num += ch
+                else:
+                    if num:
+                        tokens.append(Leaf(int(num)))
+                        num = ''
+                    if ch in '+-*/':
+                        tokens.append(ch)
+            if num:
+                tokens.append(Leaf(int(num)))
+
+            # 単純な左から右へのパース（括弧なし、優先順位なし）
+            stack: List[Node] = []
+            current_op = None
+            for token in tokens:
+                if isinstance(token, Leaf):
+                    if current_op is None:
+                        stack.append(token)
+                    else:
+                        left = stack.pop()
+                        stack.append(OpNode(current_op, left, token))
+                        current_op = None
+                else:
+                    current_op = token
+            return stack[0]
+        tree = parse_expression(args.expr)
+        print(to_string(tree, GenerationContext(endian='big')))
+        ctx = GenerationContext(endian='big')
+        scratch = scratchpad(tree, GenConfig(prob_scratchpad=1.0), ctx)
+        print(scratch)
+        return
+
+
     demo(args.num, cfg)
 
 
