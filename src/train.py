@@ -15,7 +15,7 @@ import math
 from src.model import AutoRegressiveTransformerModel
 from src.prepare_data import MathExprDataset, build_vocab, collate_fn_autoregressive
 
-from src.modelparam import NInp, NHead, NHid, NLayers, Dropout, modelhash
+from src.modelparam import ModelParam
 from torch.nn.utils import clip_grad_norm_
 from src.evaluate import evaluateModel
 
@@ -27,7 +27,18 @@ def train(args):
     pad_value = vocab['<scratchpad>']
     NTokens = len(vocab)
 
-    model = AutoRegressiveTransformerModel(NTokens, NInp, NHead, NHid, NLayers, Dropout).to(device)
+    # ModelParam でモデルパラメータをセットアップ
+    model_param = ModelParam(args.modelsize, NTokens)
+    print(f"Model configuration: {model_param}")
+
+    model = AutoRegressiveTransformerModel(
+        model_param.NTokens,
+        model_param.NInp,
+        model_param.NHead,
+        model_param.NHid,
+        model_param.NLayers,
+        model_param.Dropout
+    ).to(device)
     criterion = nn.CrossEntropyLoss(ignore_index=pad_value)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -82,7 +93,7 @@ def train(args):
         dataset = MathExprDataset(vocab, num_examples=train_num, depth=depth, max_digits=digits, seed=step)
         dataloader = DataLoader(dataset, batch_size=train_batch, shuffle=True, collate_fn=lambda b: collate_fn_autoregressive(b, pad_value))
 
-        checkpoint_path = f"checkpoints/model{modelhash()}_step{step}.pt"
+        checkpoint_path = f"checkpoints/model{model_param.hash()}_{model_param.type()}_step{step}.pt"
 
         batch_iter = tqdm(dataloader, desc=f"Train step {step}/{steps}", leave=False)
 
@@ -155,7 +166,7 @@ def train(args):
             })
         
         # Save checkpoint after each digit-depth combination
-        checkpoint_path = f"checkpoints/model{modelhash()}_step{step}.pt"
+        checkpoint_path = f"checkpoints/model{model_param.hash()}_{model_param.type()}_step{step}.pt"
         torch.save(model.state_dict(), checkpoint_path)
 
         step += 1
@@ -179,6 +190,7 @@ if __name__ == '__main__':
     parser.add_argument('--step_eval', default=False, action='store_true', help='Evaluate on 100 samples after each epoch.')
     parser.add_argument('--grad_clip', type=float, default=1.0, help='Clip gradient norm to this value (0 disables).')
     parser.add_argument('--checkpoint', type=str, default='')
+    parser.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium'], help='Model size preset.')
     args = parser.parse_args()
 
     def write_training_log(path, row_dict):

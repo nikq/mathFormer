@@ -4,7 +4,7 @@ from fractions import Fraction
 from src.model import AutoRegressiveTransformerModel
 from src.prepare_data import build_vocab
 from src.generate_data import GenConfig, stream_samples
-from src.modelparam import NInp, NHead, NHid, NLayers, Dropout  # dynamic inference still uses these as fallback
+from src.modelparam import ModelParam
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -126,12 +126,14 @@ def _infer_model_hparams(state_dict):
         if k.startswith(layer_prefix) and k.endswith('linear1.weight'):
             linear1_key = k
             break
-    nhid_infer = state_dict[linear1_key].shape[0] if linear1_key else NHid
+    # Default fallback using ModelParam
+    default_param = ModelParam('small', ntoken)
+    nhid_infer = state_dict[linear1_key].shape[0] if linear1_key else default_param.NHid
     # count layers
-    nlayers_infer = len({k.split('.')[2] for k in state_dict if k.startswith(layer_prefix) and k.endswith('self_attn.in_proj_weight')}) or NLayers
+    nlayers_infer = len({k.split('.')[2] for k in state_dict if k.startswith(layer_prefix) and k.endswith('self_attn.in_proj_weight')}) or default_param.NLayers
     return ntoken, ninp, nhid_infer, nlayers_infer
 
-def load_model(model_path):
+def load_model(model_path, model_size='small'):
     raw = torch.load(model_path, map_location=device)
     # Some checkpoints may wrap state_dict inside a dict
     if 'state_dict' in raw and isinstance(raw['state_dict'], dict):
@@ -139,16 +141,27 @@ def load_model(model_path):
     else:
         state_dict = raw
     ntoken, ninp_ckpt, nhid_ckpt, nlayers_ckpt = _infer_model_hparams(state_dict)
-    model = AutoRegressiveTransformerModel(ntoken, ninp_ckpt, NHead, nhid_ckpt, nlayers_ckpt, Dropout).to(device)
+    
+    # ModelParam でモデルパラメータを取得
+    model_param = ModelParam(model_size, ntoken)
+    
+    model = AutoRegressiveTransformerModel(
+        ntoken,
+        ninp_ckpt,
+        model_param.NHead,
+        nhid_ckpt,
+        nlayers_ckpt,
+        model_param.Dropout
+    ).to(device)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     if missing or unexpected:
         print(f"[WARN] Missing keys: {missing}, Unexpected keys: {unexpected}")
     model.eval()
     return model
 
-def evaluate(expression: str, max_len=50, model_path='mathformer.pth'):
+def evaluate(expression: str, max_len=50, model_path='mathformer.pth', model_size='small'):
     vocab = build_vocab()
-    model = load_model(model_path)
+    model = load_model(model_path, model_size)
     evaluateModel(model, expression, max_len, vocab=vocab)
 
 
@@ -160,6 +173,7 @@ def main():
     args = argparse.ArgumentParser(description="Evaluate a mathematical expression using the trained Transformer model.")
     args.add_argument('expression', type=str, nargs='?', default="2+3", help="The mathematical expression to evaluate (default: '2+3').")
     args.add_argument('--model_path', type=str, default='mathformer.pth', help="Path to the trained model file (default: 'mathformer.pth').")
+    args.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium'], help='Model size preset (default: small).')
     # autoregressive flag removed (always on)
     args.add_argument('--num_tests', type=int, default=0, help='Number of random tests to run (default: 10).')
     args.add_argument('--depth', type=int, default=3, help='Max depth of generated expressions for random tests (default: 3).')
@@ -169,7 +183,7 @@ def main():
 
     if args.model_path:
         vocab = build_vocab()
-        model = load_model(args.model_path)
+        model = load_model(args.model_path, args.modelsize)
         if args.num_tests > 1:
             correct_count = 0
             sampler = stream_samples(GenConfig(max_depth_cap=args.depth, min_digits=1, max_digits=args.digits, seed=args.seed))
@@ -182,7 +196,7 @@ def main():
         else:
             evaluateModel(model, args.expression, max_len=256, vocab=vocab)
     else:
-        evaluate(args.expression, max_len=256)
+        evaluate(args.expression, max_len=256, model_size=args.modelsize)
 
 if __name__ == '__main__':
     main()
