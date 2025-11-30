@@ -439,7 +439,6 @@ def fraction_addition_partial(left_val: Fraction, right_val: Fraction, ctx: Gene
     if g != 1:
         raw = Fraction(sum_num, l)
         steps.append(f"{sum_num}/{l}={ctx.f(raw)}")
-    steps.append(f"{ctx.f(left_val)}+{ctx.f(right_val)}={ctx.f(left_val + right_val)}")
     return steps
 
 
@@ -470,7 +469,6 @@ def fraction_subtraction_partial(left_val: Fraction, right_val: Fraction, ctx: G
     if g != 1:
         raw = Fraction(diff_num, l)
         steps.append(f"{diff_num}/{l}={ctx.f(raw)}")
-    steps.append(f'{ctx.f(left_val)}-{ctx.f(right_val)}={ctx.f(left_val - right_val)}')
     return steps
 
 # 乗算の部分式
@@ -514,6 +512,56 @@ def multiplication_partial(left_val: int, right_val: int, ctx: GenerationContext
         result += intermediate[i]
         steps.append(step)
     return steps 
+
+def fraction_multiplication_partial(left_val: Fraction, right_val: Fraction, ctx: GenerationContext) -> str:
+    # a/b * c/d -> 通分して計算、最後に約分
+    steps: List[str] = []
+    a, b = left_val.numerator, left_val.denominator
+    c, d = right_val.numerator, right_val.denominator
+    prod_num = a * c
+    prod_den = b * d
+
+    a_str = ctx.f(a)
+    b_str = ctx.f(b)
+    c_str = ctx.f(c)
+    d_str = ctx.f(d)
+
+    steps.append(f"{a_str}/{b_str}*{c_str}/{d_str}=({ctx.f(a)}*{ctx.f(c)})/({ctx.f(b)}*{ctx.f(d)})")
+    steps.append(f"{ctx.f(left_val)}*{ctx.f(right_val)}={ctx.f(prod_num)}/{ctx.f(prod_den)}")
+    g = math.gcd(prod_num, prod_den)
+    if g != 1:
+        raw = Fraction(prod_num, prod_den)
+        steps.append(f"{prod_num}/{prod_den}={ctx.f(raw)}")
+    return steps
+
+def fraction_division_partial(left_val: Fraction, right_val: Fraction, ctx: GenerationContext) -> str:
+    # a/b ÷ c/d -> a/b * d/c -> 通分して計算、最後に約分
+    steps: List[str] = []
+    a, b = left_val.numerator, left_val.denominator
+    c, d = right_val.numerator, right_val.denominator
+    div_num = a * d
+    div_den = b * c
+
+    a_str = ctx.f(a)
+    b_str = ctx.f(b)
+    c_str = ctx.f(c)
+    d_str = ctx.f(d)
+
+    steps.append(f"{a_str}/{b_str}/({c_str}/{d_str})=({a_str}*{d_str})/({b_str}*{c_str})")
+    gcd = math.gcd( a*d , b*c)
+    if gcd != 1:
+        steps.append(f"gcd({ctx.f(a*d)},{ctx.f(b*c)})={ctx.f(gcd)}")
+        steps.append(f"{ctx.f(a*d)}/{ctx.f(gcd)}={ctx.f((a*d)//gcd)}")
+        steps.append(f"{ctx.f(b*c)}/{ctx.f(gcd)}={ctx.f((b*c)//gcd)}")
+        steps.append(f"({a_str}*{d_str})/({b_str}*{c_str})={ctx.f((a*d)//gcd)}/{ctx.f((b*c)//gcd)}")
+    else:
+        steps.append(f"({a_str}*{d_str})/({b_str}*{c_str})={ctx.f(div_num)}/{ctx.f(div_den)}")
+    g = math.gcd(div_num, div_den)
+    if g != 1:
+        raw = Fraction(div_num, div_den)
+        steps.append(f"{div_num}/{div_den}={ctx.f(raw)}")
+    return steps
+
 
 
 # スクラッチパッドの生成
@@ -568,6 +616,12 @@ def scratchpad(node: Node, cfg: GenConfig, ctx: GenerationContext) -> str:
                         frac_steps = fraction_addition_partial(lv, rv, ctx)
                     elif n.op == '-':
                         frac_steps = fraction_subtraction_partial(lv, rv, ctx)
+                    elif n.op == '*':
+                        frac_steps = fraction_multiplication_partial(lv, rv, ctx)
+                    elif n.op == '/':
+                        frac_steps = fraction_division_partial(lv, rv, ctx)
+                    else:
+                        raise ValueError(f"Unknown operator: {n.op}")
                     if frac_steps is not None:
                         steps.extend(frac_steps)
                     # 最終結果の一行表示
