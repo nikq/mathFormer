@@ -1,34 +1,66 @@
+class ModelParam:
 
-model_type = "tiny"
+    def __init__(self, NTokens, NInp, NHead, NHid, NLayers, Dropout):
+        self.NTokens = NTokens
+        self.NInp = NInp
+        self.NHead = NHead
+        self.NHid = NHid
+        self.NLayers = NLayers
+        self.Dropout = Dropout
 
-# Model parameters
-NTokens = 0 # will be set after building vocab
-NInp = 64 # embedding dimension
-NHead = 2 # number of attention heads
-NHid = 64 # dimension of the feedforward network
-NLayers = 2 # number of transformer layers
-Dropout = 0.05 # dropout rate
+    def __init__(self, modelType: str, NTokens: int):
+        self.NTokens = NTokens
+        self.setup(modelType)
+    
+    def __repr__(self):
+        return (f"ModelParam(NTokens={self.NTokens}, NInp={self.NInp}, NHead={self.NHead}, "
+                f"NHid={self.NHid}, NLayers={self.NLayers}, Dropout={self.Dropout})")
+    
+    def setParam(self, modelType, NTokens, NInp, NHead, NHid, NLayers, Dropout):
+        self.modelType = modelType
+        self.NTokens = NTokens
+        self.NInp = NInp
+        self.NHead = NHead
+        self.NHid = NHid
+        self.NLayers = NLayers
+        self.Dropout = Dropout
 
-if model_type == "tiny":
-    NInp = 32 # embedding dimension
-    NHead = 2 # number of attention heads
-    NHid = 64 # dimension of the feedforward network
-    NLayers = 2 # number of transformer layers
-    Dropout = 0.05 # dropout rate
-elif model_type == "small":
-    NInp = 64 # embedding dimension
-    NHead = 4 # number of attention heads
-    NHid = 128 # dimension of the feedforward network
-    NLayers = 4 # number of transformer layers
-    Dropout = 0.05 # dropout rate
-elif model_type == "medium":
-    NInp = 1024 # embedding dimension
-    NHead = 8 # number of attention heads
-    NHid = 2048 # dimension of the feedforward network
-    NLayers = 8 # number of transformer layers
-    Dropout = 0.05 # dropout rate
-else:
-    raise ValueError(f"Unknown model type: {model_type}")
+    def setup(self, modelType: str):
+        if modelType == "tiny":
+            self.setParam(
+                modelType=modelType,
+                NTokens=self.NTokens,
+                NInp=32,
+                NHead=2,
+                NHid=64,
+                NLayers=2,
+                Dropout=0.05
+            )
+        elif modelType == "small":
+            self.setParam(
+                modelType=modelType,
+                NTokens=self.NTokens,
+                NInp=64,
+                NHead=4,
+                NHid=128,
+                NLayers=4,
+                Dropout=0.05
+            )
+        elif modelType == "medium":
+            self.setParam(
+                modelType=modelType,
+                NTokens=self.NTokens,
+                NInp=1024,
+                NHead=8,
+                NHid=2048,
+                NLayers=8,
+                Dropout=0.05
+            )
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
 
-def modelhash():
-    return hash((NTokens, NInp, NHead, NHid, NLayers, Dropout))
+    def hash(self):
+        return hash((self.NTokens, self.NInp, self.NHead, self.NHid, self.NLayers, self.Dropout))
+    
+    def type(self):
+        return self.modelType

@@ -608,7 +608,7 @@ def scratchpad(node: Node, cfg: GenConfig, ctx: GenerationContext) -> str:
                 result = left_val / right_val
             
             # 分数を含む加減算の場合、通分して詳細なサブステップを追加
-            if n.op in ('+', '-') and (isinstance(left_val, Fraction) or isinstance(right_val, Fraction)):
+            if isinstance(left_val, Fraction) or isinstance(right_val, Fraction):
                 lv = left_val if isinstance(left_val, Fraction) else Fraction(left_val)
                 rv = right_val if isinstance(right_val, Fraction) else Fraction(right_val)
                 if left_val.denominator != 1 and right_val.denominator != 1:
@@ -625,7 +625,7 @@ def scratchpad(node: Node, cfg: GenConfig, ctx: GenerationContext) -> str:
                     if frac_steps is not None:
                         steps.extend(frac_steps)
                     # 最終結果の一行表示
-                step_str = f"{ctx.f(left_val)}{n.op}{ctx.f(right_val)}={ctx.f(result)}"
+                step_str = f"{ctx.f(left_val)}{n.op}({ctx.f(right_val)})={ctx.f(result)}"
                 steps.append(step_str)
             else:
                 step_str = f"{ctx.f(left_val)}{n.op}{ctx.f(right_val)}={ctx.f(result)}"
@@ -725,6 +725,94 @@ def demo(n: int = 1, cfg: GenConfig | None = None) -> None:
         print(f'endian {s.context.endian:<10} {i:<10} {s.expr}{" [" + s.scratch + "]" if s.scratch else ""}; {s.result}')
 
 
+#====== 式のパース（コマンドライン用） ======
+def parse_expression(expr: str) -> Node:
+    """
+    括弧と演算子優先度に対応した式パーサー
+    優先度：
+      1. 括弧
+      2. * / （左結合）
+      3. + - （左結合）
+    """
+    
+    def tokenize(s: str) -> List[str]:
+        """式を字句解析してトークンに分割"""
+        tokens = []
+        i = 0
+        while i < len(s):
+            if s[i].isspace():
+                i += 1
+            elif s[i] in '()+-*/':
+                tokens.append(s[i])
+                i += 1
+            elif s[i].isdigit():
+                j = i
+                while j < len(s) and s[j].isdigit():
+                    j += 1
+                tokens.append(s[i:j])
+                i = j
+            else:
+                i += 1
+        return tokens
+    
+    tokens = tokenize(expr)
+    pos = 0
+    
+    def peek() -> Optional[str]:
+        nonlocal pos
+        if pos < len(tokens):
+            return tokens[pos]
+        return None
+    
+    def consume() -> Optional[str]:
+        nonlocal pos
+        if pos < len(tokens):
+            tok = tokens[pos]
+            pos += 1
+            return tok
+        return None
+    
+    def parse_expr() -> Node:
+        """加減を解析（最低優先度）"""
+        left = parse_term()
+        while peek() in ('+', '-'):
+            op = consume()
+            right = parse_term()
+            left = OpNode(op, left, right)
+        return left
+    
+    def parse_term() -> Node:
+        """乗除を解析"""
+        left = parse_factor()
+        while peek() in ('*', '/'):
+            op = consume()
+            right = parse_factor()
+            left = OpNode(op, left, right)
+        return left
+    
+    def parse_factor() -> Node:
+        """括弧と数値を解析（最高優先度）"""
+        tok = peek()
+        if tok == '(':
+            consume()  # '('を消費
+            node = parse_expr()  # 再帰的に式を解析
+            if peek() == ')':
+                consume()  # ')'を消費
+            return node
+        elif tok and tok[0].isdigit():
+            consume()
+            return Leaf(int(tok))
+        else:
+            raise ValueError(f"Unexpected token: {tok}")
+    
+    try:
+        result = parse_expr()
+        if pos < len(tokens):
+            raise ValueError(f"Unexpected token at end: {tokens[pos]}")
+        return result
+    except Exception as e:
+        raise ValueError(f"Parse error: {e}")
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Emit a finite number of generated math samples.")
@@ -748,36 +836,6 @@ def main():
     
     # もし式が与えられた場合はステップ分解だけを実行
     if args.expr is not None:
-        def parse_expression(expr: str) -> Node:
-            # 簡易的なパーサー（完全なものではない）
-            tokens = []
-            num = ''
-            for ch in expr:
-                if ch.isdigit() or (ch == '-' and not num):
-                    num += ch
-                else:
-                    if num:
-                        tokens.append(Leaf(int(num)))
-                        num = ''
-                    if ch in '+-*/':
-                        tokens.append(ch)
-            if num:
-                tokens.append(Leaf(int(num)))
-
-            # 単純な左から右へのパース（括弧なし、優先順位なし）
-            stack: List[Node] = []
-            current_op = None
-            for token in tokens:
-                if isinstance(token, Leaf):
-                    if current_op is None:
-                        stack.append(token)
-                    else:
-                        left = stack.pop()
-                        stack.append(OpNode(current_op, left, token))
-                        current_op = None
-                else:
-                    current_op = token
-            return stack[0]
         tree = parse_expression(args.expr)
         print(to_string(tree, GenerationContext(endian='big')))
         ctx = GenerationContext(endian='big')
