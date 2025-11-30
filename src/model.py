@@ -186,7 +186,7 @@ class TransformerBlockWithRoPE(nn.Module):
     
     def _ff_block(self, x):
         """Feedforward block."""
-        x = self.linear2(F.relu(self.linear1(x)))
+        x = self.linear2(F.gelu(self.linear1(x)))
         x = self.dropout2(x)
         return x
 
