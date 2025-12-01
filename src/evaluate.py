@@ -185,7 +185,7 @@ def main():
     args = argparse.ArgumentParser(description="Evaluate a mathematical expression using the trained Transformer model.")
     args.add_argument('expression', type=str, nargs='?', default="2+3", help="The mathematical expression to evaluate (default: '2+3').")
     args.add_argument('--checkpoint', type=str, default='mathformer.pth', help="Path to the trained model file (default: 'mathformer.pth').")
-    args.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium'], help='Model size preset (default: small).')
+    args.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium','large'], help='Model size preset (default: small).')
     args.add_argument('--num_tests', type=int, default=100, help='Number of random tests to run (default: 10).')
     args.add_argument('--depth', type=int, default=3, help='Max depth of generated expressions for random tests (default: 3).')
     args.add_argument('--digits', type=int, default=2, help='Max digits of numbers in generated expressions for random tests (default: 2).')

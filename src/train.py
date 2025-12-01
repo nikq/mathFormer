@@ -235,7 +235,7 @@ if __name__ == '__main__':
     parser.add_argument('--step_eval', default=False, action='store_true', help='Evaluate on 100 samples after each epoch.')
     parser.add_argument('--grad_clip', type=float, default=1.0, help='Clip gradient norm to this value (0 disables).')
     parser.add_argument('--checkpoint', type=str, default='')
-    parser.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium'], help='Model size preset.')
+    parser.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium','large'], help='Model size preset.')
     args = parser.parse_args()
 
     def write_training_log(path, row_dict):
