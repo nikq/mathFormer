@@ -42,9 +42,19 @@ class ModelParam:
             self.setParam(
                 modelType=modelType,
                 NTokens=self.NTokens,
-                NInp=256,
+                NInp=512,
                 NHead=8,
-                NHid=1024,
+                NHid=2048,
+                NLayers=8,
+                Dropout=0.05
+            )
+        elif modelType == "large":
+            self.setParam(
+                modelType=modelType,
+                NTokens=self.NTokens,
+                NInp=768,
+                NHead=8,
+                NHid=3072,
                 NLayers=8,
                 Dropout=0.05
             )
