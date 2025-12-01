@@ -1,6 +1,7 @@
 import torch
 import math
 from fractions import Fraction
+from src.checkpoint_utils import load_checkpoint_payload
 from src.model import AutoRegressiveTransformerModel
 from src.prepare_data import build_vocab
 from src.generate_data import GenConfig, stream_samples
@@ -116,42 +117,53 @@ def evaluateModel(model, expression: str, max_len=256, print_result=True, print_
 def _infer_model_hparams(state_dict):
     """Infer ntoken, ninp, nhid, nlayers from an autoregressive checkpoint state_dict."""
     emb_key = 'tok_emb.weight'
-    layer_prefix = 'block_stack.layers.'
     if emb_key not in state_dict:
         raise ValueError(f"Embedding key '{emb_key}' not found in checkpoint.")
     ntoken, ninp = state_dict[emb_key].shape
-    # infer nhid from first feed-forward layer weight
+
+    block_prefix = 'blocks.'
+    block_ids = set()
     linear1_key = None
-    for k in state_dict.keys():
-        if k.startswith(layer_prefix) and k.endswith('linear1.weight'):
-            linear1_key = k
-            break
-    # Default fallback using ModelParam
+    for key in state_dict.keys():
+        if not key.startswith(block_prefix):
+            continue
+        parts = key.split('.')
+        if len(parts) < 3:
+            continue
+        block_idx = parts[1]
+        if block_idx.isdigit():
+            block_ids.add(block_idx)
+        if linear1_key is None and parts[-2:] == ['linear1', 'weight']:
+            linear1_key = key
+
     default_param = ModelParam('small', ntoken)
     nhid_infer = state_dict[linear1_key].shape[0] if linear1_key else default_param.NHid
-    # count layers
-    nlayers_infer = len({k.split('.')[2] for k in state_dict if k.startswith(layer_prefix) and k.endswith('self_attn.in_proj_weight')}) or default_param.NLayers
+    nlayers_infer = len(block_ids) or default_param.NLayers
     return ntoken, ninp, nhid_infer, nlayers_infer
 
 def load_model(model_path, model_size='small'):
-    raw = torch.load(model_path, map_location=device)
-    # Some checkpoints may wrap state_dict inside a dict
-    if 'state_dict' in raw and isinstance(raw['state_dict'], dict):
-        state_dict = raw['state_dict']
-    else:
-        state_dict = raw
+    state_dict, config = load_checkpoint_payload(model_path, map_location=device)
     ntoken, ninp_ckpt, nhid_ckpt, nlayers_ckpt = _infer_model_hparams(state_dict)
     
     # ModelParam でモデルパラメータを取得
     model_param = ModelParam(model_size, ntoken)
+    nhead = model_param.NHead
+    dropout = model_param.Dropout
+
+    if config:
+        ninp_ckpt = config.get('ninp', ninp_ckpt)
+        nhid_ckpt = config.get('nhid', nhid_ckpt)
+        nlayers_ckpt = config.get('nlayers', nlayers_ckpt)
+        nhead = config.get('nhead', nhead)
+        dropout = config.get('dropout', dropout)
     
     model = AutoRegressiveTransformerModel(
         ntoken,
         ninp_ckpt,
-        model_param.NHead,
+        nhead,
         nhid_ckpt,
         nlayers_ckpt,
-        model_param.Dropout
+        dropout
     ).to(device)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     if missing or unexpected:
@@ -172,18 +184,17 @@ import argparse
 def main():
     args = argparse.ArgumentParser(description="Evaluate a mathematical expression using the trained Transformer model.")
     args.add_argument('expression', type=str, nargs='?', default="2+3", help="The mathematical expression to evaluate (default: '2+3').")
-    args.add_argument('--model_path', type=str, default='mathformer.pth', help="Path to the trained model file (default: 'mathformer.pth').")
+    args.add_argument('--checkpoint', type=str, default='mathformer.pth', help="Path to the trained model file (default: 'mathformer.pth').")
     args.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium'], help='Model size preset (default: small).')
-    # autoregressive flag removed (always on)
-    args.add_argument('--num_tests', type=int, default=0, help='Number of random tests to run (default: 10).')
+    args.add_argument('--num_tests', type=int, default=100, help='Number of random tests to run (default: 10).')
     args.add_argument('--depth', type=int, default=3, help='Max depth of generated expressions for random tests (default: 3).')
     args.add_argument('--digits', type=int, default=2, help='Max digits of numbers in generated expressions for random tests (default: 2).')
     args.add_argument('--seed', type=int, default=42, help='Random seed for generating test expressions (default: 42).')
     args = args.parse_args()
 
-    if args.model_path:
+    if args.checkpoint:
         vocab = build_vocab()
-        model = load_model(args.model_path, args.modelsize)
+        model = load_model(args.checkpoint, args.modelsize)
         if args.num_tests > 1:
             correct_count = 0
             sampler = stream_samples(GenConfig(max_depth_cap=args.depth, min_digits=1, max_digits=args.digits, seed=args.seed))
