@@ -18,6 +18,40 @@ from src.prepare_data import MathExprDataset, build_vocab, collate_fn_autoregres
 from src.modelparam import ModelParam
 from torch.nn.utils import clip_grad_norm_
 from src.evaluate import evaluateModel
+from src.checkpoint_utils import load_checkpoint_payload
+
+
+def _maybe_load_checkpoint(path, device):
+    if not path:
+        return None, None
+    try:
+        state_dict, config = load_checkpoint_payload(path, map_location=device)
+        print(f"Loaded checkpoint metadata from {path}")
+        return state_dict, config
+    except FileNotFoundError:
+        print(f"No checkpoint found at {path}, starting fresh.")
+        return None, None
+
+
+def _build_model_param(modelsize, ntokens, checkpoint_config):
+    base_param = ModelParam(modelsize, ntokens)
+    if not checkpoint_config:
+        return base_param
+    ckpt_ntokens = checkpoint_config.get('ntoken')
+    if ckpt_ntokens is not None and ckpt_ntokens != ntokens:
+        raise ValueError(
+            f"Checkpoint expects {ckpt_ntokens} tokens but current vocab has {ntokens}."
+        )
+    base_param.setParam(
+        checkpoint_config.get('model_type', base_param.type()),
+        ntokens,
+        checkpoint_config.get('ninp', base_param.NInp),
+        checkpoint_config.get('nhead', base_param.NHead),
+        checkpoint_config.get('nhid', base_param.NHid),
+        checkpoint_config.get('nlayers', base_param.NLayers),
+        checkpoint_config.get('dropout', base_param.Dropout)
+    )
+    return base_param
 
 def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
@@ -27,8 +61,10 @@ def train(args):
     pad_value = vocab['<scratchpad>']
     NTokens = len(vocab)
 
+    checkpoint_state_dict, checkpoint_config = _maybe_load_checkpoint(args.checkpoint, device)
+
     # ModelParam でモデルパラメータをセットアップ
-    model_param = ModelParam(args.modelsize, NTokens)
+    model_param = _build_model_param(args.modelsize, NTokens, checkpoint_config)
     print(f"Model configuration: {model_param}")
 
     model = AutoRegressiveTransformerModel(
@@ -76,13 +112,9 @@ def train(args):
     if args.scheduler == 'cosine':
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 
-    # load checkpoint if exists
-    if args.checkpoint:
-        try:
-            model.load_state_dict(torch.load(args.checkpoint, map_location=device))
-            print(f"Loaded checkpoint from {args.checkpoint}")
-        except FileNotFoundError:
-            print(f"No checkpoint found at {args.checkpoint}, starting fresh.")
+    if checkpoint_state_dict:
+        model.load_state_dict(checkpoint_state_dict)
+        print(f"Loaded weights from {args.checkpoint}")
 
     # Wrap epoch iterator with tqdm unless disabled
     step_iter = range(steps)
@@ -167,7 +199,20 @@ def train(args):
         
         # Save checkpoint after each digit-depth combination
         checkpoint_path = f"checkpoints/model{model_param.hash()}_{model_param.type()}_step{step}.pt"
-        torch.save(model.state_dict(), checkpoint_path)
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+        checkpoint_payload = {
+            'state_dict': model.state_dict(),
+            'config': {
+                'model_type': model_param.type(),
+                'ntoken': model_param.NTokens,
+                'ninp': model_param.NInp,
+                'nhead': model_param.NHead,
+                'nhid': model_param.NHid,
+                'nlayers': model_param.NLayers,
+                'dropout': model_param.Dropout
+            }
+        }
+        torch.save(checkpoint_payload, checkpoint_path)
 
         step += 1
 
