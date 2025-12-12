@@ -119,25 +119,29 @@ class TransformerBlockWithRoPE(nn.Module):
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
     
-    def forward(self, x, attn_mask=None, key_padding_mask=None):
+    def forward(self, x, attn_mask=None, key_padding_mask=None, return_attn_weights=False):
         """
         Args:
             x: Input tensor of shape (B, T, d_model)
             attn_mask: Attention mask of shape (T, T) for causal masking
             key_padding_mask: Padding mask of shape (B, T)
+            return_attn_weights: If True, returns attention weights
             
         Returns:
-            Output tensor of shape (B, T, d_model)
+            Output tensor of shape (B, T, d_model), or (output, attn_weights) if return_attn_weights is True
         """
         # Self-attention with RoPE
-        x = x + self._sa_block(self.norm1(x), attn_mask, key_padding_mask)
+        sa_out, attn_weights = self._sa_block(self.norm1(x), attn_mask, key_padding_mask, return_attn_weights=return_attn_weights)
+        x = x + sa_out
         
         # Feedforward
         x = x + self._ff_block(self.norm2(x))
         
+        if return_attn_weights:
+            return x, attn_weights
         return x
     
-    def _sa_block(self, x, attn_mask, key_padding_mask):
+    def _sa_block(self, x, attn_mask, key_padding_mask, return_attn_weights=False):
         """Self-attention block with RoPE."""
         B, T, C = x.shape
         
@@ -182,7 +186,11 @@ class TransformerBlockWithRoPE(nn.Module):
         output = self.out_proj(attn_output)
         output = self.dropout1(output)
         
-        return output
+        output = self.dropout1(output)
+        
+        if return_attn_weights:
+            return output, attn_weights
+        return output, None
     
     def _ff_block(self, x):
         """Feedforward block."""
@@ -232,7 +240,7 @@ class AutoRegressiveTransformerModel(nn.Module):
         float_mask.masked_fill_(mask, float('-inf'))
         return float_mask
 
-    def forward(self, tokens: torch.Tensor, attn_mask: torch.Tensor | None = None, key_padding_mask: torch.Tensor | None = None):
+    def forward(self, tokens: torch.Tensor, attn_mask: torch.Tensor | None = None, key_padding_mask: torch.Tensor | None = None, return_diagnostics: bool = False):
         # tokens: (B, T)
         B, T = tokens.shape
         device = tokens.device
@@ -240,15 +248,31 @@ class AutoRegressiveTransformerModel(nn.Module):
             attn_mask = self.generate_square_subsequent_mask(T, device)
         
         # Token embedding with scaling (no positional encoding added here!)
-        x = self.tok_emb(tokens) * math.sqrt(self.ninp)  # (B,T,C)
-        x = self.dropout(x)
+        emb = self.tok_emb(tokens) * math.sqrt(self.ninp)  # (B,T,C)
+        x = self.dropout(emb)
+        
+        enc_attms = []
+        activations = []
         
         # Apply transformer blocks (RoPE is applied internally)
         for block in self.blocks:
-            x = block(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
+            if return_diagnostics:
+                x, attn = block(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask, return_attn_weights=True)
+                enc_attms.append(attn)
+                activations.append(x)
+            else:
+                x = block(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
         
         # Project to vocabulary
         logits = self.out_proj(x)  # (B,T,ntoken)
+        
+        if return_diagnostics:
+             return logits, {
+                 'embeddings': emb,
+                 'activations': activations,
+                 'attentions': enc_attms
+             }
+        
         return logits
 
     @torch.no_grad()
