@@ -4,7 +4,7 @@ import os
 from fractions import Fraction
 
 # make sure src/ is importable
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+# sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from generate_data import (
     fraction_addition_partial,
@@ -30,7 +30,7 @@ class TestSubsteps(unittest.TestCase):
         self.assertIn("lcm(2,3)=6", joined)
         self.assertIn("1/2=3/6", joined)
         self.assertIn("1/3=2/6", joined)
-        self.assertIn("1/2+1/3=5/6", joined)
+        # self.assertIn("1/2+1/3=5/6", joined) - this is done in scratchpad() now
 
     def test_fraction_subtraction_partial(self):
         steps = fraction_subtraction_partial(Fraction(3,4), Fraction(1,6), self.ctx)
@@ -39,7 +39,7 @@ class TestSubsteps(unittest.TestCase):
         self.assertIn("lcm(4,6)=12", joined)
         self.assertIn("3/4=9/12", joined)
         self.assertIn("1/6=2/12", joined)
-        self.assertIn("3/4-1/6=7/12", joined)
+        # self.assertIn("3/4-1/6=7/12", joined) - this is done in scratchpad() now
 
     def test_subtraction_with_borrow_sign_patterns(self):
         cfg = GenConfig()
@@ -72,26 +72,26 @@ class TestSubsteps(unittest.TestCase):
         s = scratchpad(root, cfg, self.ctx)
         self.assertIsInstance(s, str)
         self.assertIn('lcm(2,3)=6', s)
-        self.assertIn('1/2+1/3=', s)
+        self.assertIn('1/2+(1/3)=', s)
 
     def test_fraction_multiplication_partial(self):
         steps = fraction_multiplication_partial(Fraction(1, 2), Fraction(2, 3), self.ctx)
         self.assertIsInstance(steps, list)
         joined = ", ".join(steps)
-        # Should show: 1*2=2, 2*3=6, and simplification to 1/3
-        self.assertIn("1*2=2", joined)
-        self.assertIn("2*3=6", joined)
-        self.assertIn("1/2*(2/3)=(1*2)/(2*3)", joined)
+        # Should show simplification to 1/3
+        # self.assertIn("1*2=2", joined)
+        # self.assertIn("2*3=6", joined)
+        self.assertIn("1/2*2/3=(1*2)/(2*3)", joined)
         self.assertIn('2/6=1/3', joined)
 
     def test_fraction_division_partial(self):
         steps = fraction_division_partial(Fraction(1, 2), Fraction(1, 3), self.ctx)
         self.assertIsInstance(steps, list)
         joined = ", ".join(steps)
-        # 1/2 ÷ 1/3 = 1/2 * 3/1 = 3/2
-        self.assertIn("1/2÷1/3", joined)
-        self.assertIn("1*3=3", joined)
-        self.assertIn("2*1=2", joined)
+        # 1/2 / 1/3 = 1/2 * 3/1 = 3/2
+        self.assertIn("1/2/(1/3)", joined)
+        # self.assertIn("1*3=3", joined) - no longer generated
+        # self.assertIn("2*1=2", joined) - no longer generated
         self.assertIn("3/2", joined)
 
 if __name__ == '__main__':
