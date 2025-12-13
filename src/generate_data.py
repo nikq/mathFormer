@@ -1,18 +1,7 @@
 
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# generate_data_v3.py
-#
-# v3 変更点（v2ベース）
-# - 部分スクラッチ（Partial Scratch）モードを追加：
-#   特定の「部分式」だけを人間的に2〜3手で展開して <scratch>...</scratch><final>=...</final> を生成。
-#   例) 14*3 -> <scratch>10*3=30, 30+4*3=42</scratch><final>=42</final>
-#       27+38 -> <scratch>20+38=58, 58+7=65</scratch><final>=65</final>
-#       42-17 -> <scratch>42-10=32, 32-7=25</scratch><final>=25</final>
-# - 既存のフルスクラッチも保持し、確率で切り替え可能。
-# - デノイジング、近重複排除、ロングテール深さ分布など v2 の改善はすべて継承。
-#
-# 依存：標準ライブラリのみ
+# generate_data.py
 
 import random
 import itertools
@@ -29,7 +18,7 @@ class GenConfig:
     max_depth_cap: int = 8
     min_digits: int = 1
     max_digits: int = 2
-    operators: Set[str] = field(default_factory=lambda: {'+', '-', '*', '/'})  # 出現する演算子
+    operators: Set[str] = field(default_factory=lambda: {'+', '-', '*', '/', '%', 'max', 'min', 'next', 'prev', 'abs'})  # 出現する演算子
     prob_scratchpad: float = 0.3      # スクラッチパッドの確率
     prob_little_endian: float = 0.5         # リトルエンディアンの確率
     dedup_window: int = 100
@@ -90,13 +79,39 @@ class OpNode(Node):
         self.left = left
         self.right = right
 
+class UnaryOpNode(Node):
+    def __init__(self, op: str, child: Node):
+        self.op = op
+        self.child = child
+
+ARITY = {
+    '+': 2, '-': 2, '*': 2, '/': 2, '%': 2,
+    'max': 2, 'min': 2,
+    'next': 1, 'prev': 1, 'abs': 1
+}
+
 
 # ====== 評価 ======
+
+    
 def evaluate(node: Node) -> Fraction:
     if isinstance(node, Leaf):
         return Fraction(node.value)
+    if isinstance(node, UnaryOpNode):
+        child = evaluate(node.child)
+        if node.op == 'next':
+            return child + 1
+        if node.op == 'prev':
+            return child - 1
+        if node.op == 'abs':
+            return abs(child)
+        raise ValueError(f"Unknown unary operator: {node.op}")
+
     left = evaluate(node.left)
     right = evaluate(node.right)
+    return evaluate_binary(node, left, right)
+
+def evaluate_binary(node: OpNode, left: Fraction, right: Fraction) -> Fraction:
     if node.op == '+':
         return left + right
     if node.op == '-':
@@ -107,6 +122,14 @@ def evaluate(node: Node) -> Fraction:
         if right == 0:
             raise ZeroDivisionError
         return left / right
+    if node.op == '%':
+        if right == 0:
+            raise ZeroDivisionError
+        return left % right
+    if node.op == 'max':
+        return max(left, right)
+    if node.op == 'min':
+        return min(left, right)
     raise ValueError(f"Unknown operator: {node.op}")
 
 
@@ -124,9 +147,26 @@ def generate_tree(cfg: GenConfig, current_depth = 0) -> Node:
 
     operators = list(cfg.operators)
     op = random.choice(operators)
+    arity = ARITY.get(op, 2)
+    
+    if arity == 1:
+        child = generate_tree(cfg, current_depth + 1)
+        return UnaryOpNode(op, child)
+
     left = generate_tree(cfg, current_depth + 1)
 
     if op == '/':
+        for _ in range(10):
+            right = generate_tree(cfg, current_depth + 1)
+            try:
+                val = evaluate(right)
+            except ZeroDivisionError:
+                continue
+            if val != 0:
+                break
+        else:
+            right = Leaf(1)
+    elif op == '%':
         for _ in range(10):
             right = generate_tree(cfg, current_depth + 1)
             try:
@@ -154,11 +194,22 @@ def to_string(node: Node, ctx: GenerationContext, parent_prec: int = 0, is_right
     precedence = {'+': 1, '-': 1, '*': 2, '/': 2}
     if isinstance(node, Leaf):
         return ctx.f(node.value)
+    
+    if isinstance(node, UnaryOpNode):
+        child_str = to_string(node.child, ctx, 100, strip_paren=True) # 100 is high prec
+        return f"{node.op}({child_str})"
+
+    if node.op in ('max', 'min'):
+        left_str = to_string(node.left, ctx, -1, strip_paren=True)
+        right_str = to_string(node.right, ctx, -1, strip_paren=True)
+        return f"{node.op}({left_str}, {right_str})"
+        
+    precedence = {'+': 1, '-': 1, '*': 2, '/': 2, '%': 2}
     prec = precedence.get(node.op, 0)
     left_str = to_string(node.left, ctx, prec, is_right=False, strip_paren=strip_paren)
     right_str = to_string(node.right, ctx, prec, is_right=True, strip_paren=strip_paren)
-    s = f"{left_str}{node.op}{right_str}"
-    need_paren = prec < parent_prec or (parent_prec == prec and is_right and node.op in ('-', '/'))
+    s = f"{left_str} {node.op} {right_str}"
+    need_paren = prec < parent_prec or (parent_prec == prec and is_right and node.op in ('-', '/', '%'))
     if not need_paren and not strip_paren and random.random() < 0.15:
         need_paren = True
     return f"({s})" if need_paren else s
@@ -166,8 +217,19 @@ def to_string(node: Node, ctx: GenerationContext, parent_prec: int = 0, is_right
 def canonicalize(node: Node) -> Node:
     if isinstance(node, Leaf):
         return Leaf(node.value)
+    if isinstance(node, UnaryOpNode):
+        child = canonicalize(node.child)
+        return UnaryOpNode(node.op, child)
+
     left = canonicalize(node.left)
     right = canonicalize(node.right)
+    
+    if node.op in ('max', 'min'):
+        # Sort arguments for canonicalization
+        items = [left, right]
+        items_sorted = sorted(items, key=lambda n: to_string(n, GenerationContext(endian='big'), strip_paren=True))
+        return OpNode(node.op, items_sorted[0], items_sorted[1])
+
     if isinstance(node, OpNode) and node.op == '-':
         right = OpNode('*', Leaf(-1), right)
         node = OpNode('+', left, right)
@@ -182,6 +244,8 @@ def canonicalize(node: Node) -> Node:
         return current
     if isinstance(node, OpNode) and node.op == '/':
         return OpNode('/', left, right)
+    if isinstance(node, OpNode) and node.op == '%':
+        return OpNode('%', left, right)
     return OpNode(node.op, left, right)
 
 def canonical_hash(node: Node) -> int:
@@ -572,30 +636,67 @@ def scratchpad(node: Node, cfg: GenConfig, ctx: GenerationContext) -> str:
     def helper(n: Node) -> Fraction:
         if random.random() > cfg.prob_scratchpad:
             return evaluate(n)
-        # この先が四則演算なら部分式を展開
-        if isinstance(n, OpNode) and isinstance(n.left, Leaf) and isinstance(n.right, Leaf):
-            left_val = n.left.value
-            right_val = n.right.value
-            match n.op:
-                case '+':
-                    substeps = addition_with_carry(left_val, right_val, ctx)
-                case '-':  
-                    substeps = subtraction_with_borrow(left_val, right_val, ctx)
-                case '*':
-                    substeps = multiplication_partial(left_val, right_val, ctx)
-                case '/':
-                    substeps = division_partial(left_val, right_val, ctx)
-                case _:
-                    pass
-            if substeps is not None:
-                steps.extend(substeps)
+
+        # Unary Operators
+        if isinstance(n, UnaryOpNode):
+            child_val = helper(n.child)
+            result = None
+            if n.op == 'next':
+                result = child_val + 1
+                steps.append(f"next({ctx.f(child_val)})={ctx.f(child_val)}+1={ctx.f(result)}")
+            elif n.op == 'prev':
+                result = child_val - 1
+                steps.append(f"prev({ctx.f(child_val)})={ctx.f(child_val)}-1={ctx.f(result)}")
+            elif n.op == 'abs':
+                result = abs(child_val)
+                steps.append(f"abs({ctx.f(child_val)})={ctx.f(result)}")
+            else:
+                raise ValueError(f"Unknown unary op: {n.op}")
+            return result
+
+        if isinstance(n, Leaf):
             return evaluate(n)
-        else:
-            if isinstance(n, Leaf):
+            
+        # Binary Operators
+        if isinstance(n, OpNode):
+            # Special case for basic arithmetic with leaves: expand substeps
+            if n.op in ('+', '-', '*', '/') and isinstance(n.left, Leaf) and isinstance(n.right, Leaf):
+                left_val = n.left.value
+                right_val = n.right.value
+                substeps = None
+                match n.op:
+                    case '+':
+                        substeps = addition_with_carry(left_val, right_val, ctx)
+                    case '-':  
+                        substeps = subtraction_with_borrow(left_val, right_val, ctx)
+                    case '*':
+                        substeps = multiplication_partial(left_val, right_val, ctx)
+                    case '/':
+                        substeps = division_partial(left_val, right_val, ctx)
+                if substeps is not None:
+                    steps.extend(substeps)
                 return evaluate(n)
+
+            # General recursive case
             left_val = helper(n.left)
             right_val = helper(n.right)
             result = None
+
+            if n.op == 'max':
+                result = max(left_val, right_val)
+                steps.append(f"max({ctx.f(left_val)}, {ctx.f(right_val)})={ctx.f(result)}")
+                return result
+            elif n.op == 'min':
+                result = min(left_val, right_val)
+                steps.append(f"min({ctx.f(left_val)}, {ctx.f(right_val)})={ctx.f(result)}")
+                return result
+            elif n.op == '%':
+                if right_val == 0:
+                    raise ZeroDivisionError
+                result = left_val % right_val
+                steps.append(f"{ctx.f(left_val)}%{ctx.f(right_val)}={ctx.f(result)}")
+                return result
+
             if n.op == '+':
                 result = left_val + right_val
             elif n.op == '-':
@@ -607,11 +708,12 @@ def scratchpad(node: Node, cfg: GenConfig, ctx: GenerationContext) -> str:
                     raise ZeroDivisionError
                 result = left_val / right_val
             
-            # 分数を含む加減算の場合、通分して詳細なサブステップを追加
+            # Fraction steps or basic step
             if isinstance(left_val, Fraction) or isinstance(right_val, Fraction):
                 lv = left_val if isinstance(left_val, Fraction) else Fraction(left_val)
                 rv = right_val if isinstance(right_val, Fraction) else Fraction(right_val)
                 if left_val.denominator != 1 and right_val.denominator != 1:
+                    frac_steps = None
                     if n.op == '+':
                         frac_steps = fraction_addition_partial(lv, rv, ctx)
                     elif n.op == '-':
@@ -620,17 +722,22 @@ def scratchpad(node: Node, cfg: GenConfig, ctx: GenerationContext) -> str:
                         frac_steps = fraction_multiplication_partial(lv, rv, ctx)
                     elif n.op == '/':
                         frac_steps = fraction_division_partial(lv, rv, ctx)
-                    else:
-                        raise ValueError(f"Unknown operator: {n.op}")
+                    
                     if frac_steps is not None:
                         steps.extend(frac_steps)
-                    # 最終結果の一行表示
+                
                 step_str = f"{ctx.f(left_val)}{n.op}({ctx.f(right_val)})={ctx.f(result)}"
                 steps.append(step_str)
             else:
                 step_str = f"{ctx.f(left_val)}{n.op}{ctx.f(right_val)}={ctx.f(result)}"
                 steps.append(step_str)
             return result
+            
+        raise ValueError(f"Unknown node type: {type(n)}")
+
+    helper(node)
+    return ", ".join(steps)
+            
     helper(node)
     return ", ".join(steps)
 
@@ -823,7 +930,10 @@ def main():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--prob-scratchpad', type=float, default=0.3)
     parser.add_argument('--prob-little-endian', type=float, default=0.5)
-    parser.add_argument('--operators', type=str, default='+-*/')
+    def parse_operators(op_str: str) -> set[str]:
+        return set(op_str.split(','))
+    parser.add_argument('--operators', type=parse_operators, default='+,-,*,/,min,max,next,prev,abs',
+                        help='Comma-separated list of operators to use (e.g., "+,-,*,/,min,max").')
     parser.add_argument('--expr', type=str, default=None, help='If given, only perform step decomposition on this expression.')
     args = parser.parse_args()
     cfg = GenConfig(max_depth_cap=args.max_depth,
