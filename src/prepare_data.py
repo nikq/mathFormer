@@ -48,7 +48,7 @@ class MathExprDataset(Dataset):
         for ch in str:
             if ch not in self.vocab:
                 # add unknown? raise for visibility (vocab must include all needed chars)
-                print(f"Unknown char '{ch}' in sample: {full}")
+                print(f"Unknown char '{ch}' in sample: {str}")
                 raise KeyError(
                     f"Character '{ch}' missing from vocab. Expand vocab for scratchpad tokens.")
             tokens.append(self.vocab[ch])
@@ -76,7 +76,7 @@ class MathExprDataset(Dataset):
 
 def build_vocab():
     # Extend vocab with scratchpad markup symbols and lowercase letters
-    base_chars = list("0123456789.+-*/()=^")
+    base_chars = list("0123456789.+-*/()%^=")
     markup_chars = list("[], ;")
     # Add lowercase letters for scratchpad text (e.g., "carry")
     alpha_chars = list("abcdefghijklmnopqrstuvwxyz")
