@@ -18,7 +18,8 @@ from src.prepare_data import MathExprDataset, build_vocab, collate_fn_autoregres
 from src.modelparam import ModelParam
 from torch.nn.utils import clip_grad_norm_
 from src.evaluate import evaluateModel
-from src.checkpoint_utils import load_checkpoint_payload
+from src.checkpoint_utils import load_checkpoint_payload, build_model_param
+from src.utils import get_device, write_csv_log
 
 
 def _maybe_load_checkpoint(path, device):
@@ -33,28 +34,10 @@ def _maybe_load_checkpoint(path, device):
         return None, None
 
 
-def _build_model_param(modelsize, ntokens, checkpoint_config):
-    base_param = ModelParam(modelsize, ntokens)
-    if not checkpoint_config:
-        return base_param
-    ckpt_ntokens = checkpoint_config.get('ntoken')
-    if ckpt_ntokens is not None and ckpt_ntokens != ntokens:
-        raise ValueError(
-            f"Checkpoint expects {ckpt_ntokens} tokens but current vocab has {ntokens}."
-        )
-    base_param.setParam(
-        checkpoint_config.get('model_type', base_param.type()),
-        ntokens,
-        checkpoint_config.get('ninp', base_param.NInp),
-        checkpoint_config.get('nhead', base_param.NHead),
-        checkpoint_config.get('nhid', base_param.NHid),
-        checkpoint_config.get('nlayers', base_param.NLayers),
-        checkpoint_config.get('dropout', base_param.Dropout)
-    )
-    return base_param
+
 
 def train(args):
-    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    device = get_device()
     print(f"Using device: {device}")
 
     vocab = build_vocab()
@@ -64,7 +47,8 @@ def train(args):
     checkpoint_state_dict, checkpoint_config = _maybe_load_checkpoint(args.checkpoint, device)
 
     # ModelParam でモデルパラメータをセットアップ
-    model_param = _build_model_param(args.modelsize, NTokens, checkpoint_config)
+    # ModelParam でモデルパラメータをセットアップ
+    model_param = build_model_param(args.modelsize, NTokens, checkpoint_config)
     print(f"Model configuration: {model_param}")
 
     model = AutoRegressiveTransformerModel(
@@ -181,7 +165,7 @@ def train(args):
 
         # CSV logging per epoch
         if args.log_csv:
-            write_training_log(args.log_csv, {
+            write_csv_log(args.log_csv, {
                 'phase':'train',
                 'depth':depth,
                 'digits':digits,
@@ -195,7 +179,7 @@ def train(args):
                 'exam_type':'epoch',
                 'grad_clip': args.grad_clip,
                 'grad_norm': float(grad_norm) if 'grad_norm' in locals() and grad_norm is not None else ''
-            })
+            }, header=['phase','depth','digits','step','steps','loss','eval_100_correct','eval_100_total','eval_100_acc','exam_type','grad_clip','grad_norm'])
         
         # Save checkpoint after each digit-depth combination
         checkpoint_path = f"checkpoints/model{model_param.hash()}_{model_param.type()}_step{step}.pt"
@@ -238,13 +222,4 @@ if __name__ == '__main__':
     parser.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium','large'], help='Model size preset.')
     args = parser.parse_args()
 
-    def write_training_log(path, row_dict):
-        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-        header = ['phase','depth','digits','step','steps','loss','eval_100_correct','eval_100_total','eval_100_acc','exam_type','grad_clip','grad_norm']
-        file_exists = os.path.isfile(path)
-        with open(path, 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=header)
-            if not file_exists:
-                writer.writeheader()
-            writer.writerow({k: row_dict.get(k,'') for k in header})
     train(args)

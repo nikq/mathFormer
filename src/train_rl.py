@@ -24,12 +24,12 @@ except ImportError:
 from src.model import AutoRegressiveTransformerModel
 from src.prepare_data import build_vocab
 from src.generate_data import GenConfig, stream_samples, GeneratorResult
-from src.evaluate import check_correctness, split_scratchpad_and_result, _infer_model_hparams
+from src.utils import check_correctness, split_scratchpad_and_result, get_device, write_csv_log
 from src.grpo import GRPOConfig, GRPOTrainer, create_attention_mask
-from src.checkpoint_utils import load_checkpoint_payload
+from src.checkpoint_utils import load_checkpoint_payload, infer_model_hparams, build_model_param
 from src.modelparam import ModelParam
 
-device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+device = get_device()
 
 
 def generate_batch_problems(
@@ -301,7 +301,7 @@ def train_rl(args):
     state_dict, config = load_checkpoint_payload(args.checkpoint, map_location=device)
     
     # ModelParam でモデルパラメータをセットアップ
-    model_param = _build_model_param(args.modelsize, NTokens, checkpoint_config)
+    model_param = build_model_param(args.modelsize, len(vocab), config)
     print(f"Model configuration: {model_param}")
 
     model = AutoRegressiveTransformerModel(
@@ -329,7 +329,7 @@ def train_rl(args):
     for param in ref_model.parameters():
         param.requires_grad = False
     
-    print(f"Model loaded: {nlayers_ckpt} layers, {ninp_ckpt} dim, {nhid_ckpt} hidden")
+    print(f"Model loaded: {model_param.NLayers} layers, {model_param.NInp} dim, {model_param.NHid} hidden")
     
     # Create GRPO config and trainer
     grpo_config = GRPOConfig(
@@ -412,7 +412,27 @@ def train_rl(args):
         
         # Log metrics
         if args.log_csv:
-            write_rl_log(args.log_csv, step, metrics, args)
+            write_csv_log(args.log_csv, {
+                'phase': 'rl_train',
+                'step': step,
+                'total_loss': metrics.get('total_loss', ''),
+                'policy_loss': metrics.get('policy_loss', ''),
+                'kl_divergence': metrics.get('kl_divergence', ''),
+                'avg_reward': metrics.get('avg_reward', ''),
+                'std_reward': metrics.get('std_reward', ''),
+                'clip_fraction': metrics.get('clip_fraction', ''),
+                'grad_norm': metrics.get('grad_norm', ''),
+                'entropy': metrics.get('entropy', ''),
+                'eval_acc': metrics.get('eval_acc', ''),
+                'eval_correct': metrics.get('eval_correct', ''),
+                'eval_total': metrics.get('eval_total', ''),
+                'lr': args.lr,
+                'group_size': args.group_size
+            }, header=[
+                'phase', 'step', 'total_loss', 'policy_loss', 'kl_divergence',
+                'avg_reward', 'std_reward', 'clip_fraction', 'grad_norm', 'entropy',
+                'eval_acc', 'eval_correct', 'eval_total', 'lr', 'group_size'
+            ])
         
         # Save checkpoint
         if (step + 1) % args.save_interval == 0:
@@ -434,48 +454,7 @@ def train_rl(args):
     print(f"Saved final model to {final_path}")
 
 
-def write_rl_log(path: str, step: int, metrics: dict, args):
-    """Write RL training logs to CSV.
-    
-    Args:
-        path: Path to CSV file
-        step: Current training step
-        metrics: Dictionary of metrics
-        args: Command-line arguments
-    """
-    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-    
-    header = [
-        'phase', 'step', 'total_loss', 'policy_loss', 'kl_divergence',
-        'avg_reward', 'std_reward', 'clip_fraction', 'grad_norm', 'entropy',
-        'eval_acc', 'eval_correct', 'eval_total', 'lr', 'group_size'
-    ]
-    
-    file_exists = os.path.isfile(path)
-    
-    with open(path, 'a', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=header)
-        if not file_exists:
-            writer.writeheader()
-        
-        row = {
-            'phase': 'rl_train',
-            'step': step,
-            'total_loss': metrics.get('total_loss', ''),
-            'policy_loss': metrics.get('policy_loss', ''),
-            'kl_divergence': metrics.get('kl_divergence', ''),
-            'avg_reward': metrics.get('avg_reward', ''),
-            'std_reward': metrics.get('std_reward', ''),
-            'clip_fraction': metrics.get('clip_fraction', ''),
-            'grad_norm': metrics.get('grad_norm', ''),
-            'entropy': metrics.get('entropy', ''),
-            'eval_acc': metrics.get('eval_acc', ''),
-            'eval_correct': metrics.get('eval_correct', ''),
-            'eval_total': metrics.get('eval_total', ''),
-            'lr': args.lr,
-            'group_size': args.group_size
-        }
-        writer.writerow(row)
+    train_rl(args)
 
 
 if __name__ == '__main__':
@@ -520,6 +499,7 @@ if __name__ == '__main__':
                         help='Evaluate every N steps')
     parser.add_argument('--log_csv', type=str, default='',
                         help='CSV log file path')
+    parser.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium','large'], help='Model size preset.')
     
     args = parser.parse_args()
     train_rl(args)
