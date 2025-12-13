@@ -10,7 +10,7 @@ from fractions import Fraction
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple, Iterator, Set
 from unittest import case
-from src.ast import Node, Leaf, OpNode, UnaryOpNode, evaluate, evaluate_binary, ARITY
+from src.math_ast import Node, Leaf, OpNode, UnaryOpNode, evaluate, evaluate_binary, ARITY
 
 
 # ====== コンフィグ ======

@@ -1,5 +1,5 @@
 # test_parse.py
-from src.ast import parse, Node
+from src.math_ast import parse, Node
 import unittest
 
 class TestNewOps(unittest.TestCase):
