@@ -26,7 +26,8 @@ from src.prepare_data import build_vocab
 from src.generate_data import GenConfig, stream_samples, GeneratorResult
 from src.evaluate import check_correctness, split_scratchpad_and_result, _infer_model_hparams
 from src.grpo import GRPOConfig, GRPOTrainer, create_attention_mask
-from src.modelparam import NInp, NHead, NHid, NLayers, Dropout
+from src.checkpoint_utils import load_checkpoint_payload
+from src.modelparam import ModelParam
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -297,26 +298,31 @@ def train_rl(args):
         raise ValueError("Must provide --checkpoint path to pretrained model")
     
     print(f"Loading checkpoint from {args.checkpoint}")
-    raw = torch.load(args.checkpoint, map_location=device)
+    state_dict, config = load_checkpoint_payload(args.checkpoint, map_location=device)
     
-    # Handle different checkpoint formats
-    if 'state_dict' in raw and isinstance(raw['state_dict'], dict):
-        state_dict = raw['state_dict']
-    else:
-        state_dict = raw
-    
-    # Infer model hyperparameters
-    ntoken, ninp_ckpt, nhid_ckpt, nlayers_ckpt = _infer_model_hparams(state_dict)
-    
-    # Create policy model and load weights
+    # ModelParam でモデルパラメータをセットアップ
+    model_param = _build_model_param(args.modelsize, NTokens, checkpoint_config)
+    print(f"Model configuration: {model_param}")
+
     model = AutoRegressiveTransformerModel(
-        ntoken, ninp_ckpt, NHead, nhid_ckpt, nlayers_ckpt, Dropout
+        model_param.NTokens,
+        model_param.NInp,
+        model_param.NHead,
+        model_param.NHid,
+        model_param.NLayers,
+        model_param.Dropout
     ).to(device)
+    
     model.load_state_dict(state_dict, strict=False)
     
     # Create reference model (frozen copy)
     ref_model = AutoRegressiveTransformerModel(
-        ntoken, ninp_ckpt, NHead, nhid_ckpt, nlayers_ckpt, Dropout
+        model_param.NTokens,
+        model_param.NInp,
+        model_param.NHead,
+        model_param.NHid,
+        model_param.NLayers,
+        model_param.Dropout
     ).to(device)
     ref_model.load_state_dict(state_dict, strict=False)
     ref_model.eval()

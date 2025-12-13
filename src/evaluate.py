@@ -6,6 +6,7 @@ from src.model import AutoRegressiveTransformerModel
 from src.prepare_data import build_vocab
 from src.generate_data import GenConfig, stream_samples
 from src.modelparam import ModelParam
+from src.ast import evaluate, evaluate_binary, ARITY, parse
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -14,7 +15,11 @@ def check_correctness(expression: str, predicted_result: str) -> bool:
     """Robust correctness check supporting integer, float, and fraction forms (e.g. '2/3')."""
     if predicted_result == '':
         return False
-    true_str = str(eval(expression))
+
+    expr_tree = parse(expression)
+    eval_result = evaluate(expr_tree)
+    print(f"Expression: {expression}, Expected: {eval_result}, Predicted: {predicted_result}")
+    true_str = str(eval_result)
 
     if '/' in predicted_result:
         numer = predicted_result.split('/')[0]
@@ -171,12 +176,6 @@ def load_model(model_path, model_size='small'):
     model.eval()
     return model
 
-def evaluate(expression: str, max_len=50, model_path='mathformer.pth', model_size='small'):
-    vocab = build_vocab()
-    model = load_model(model_path, model_size)
-    evaluateModel(model, expression, max_len, vocab=vocab)
-
-
 
 import sys
 import argparse
@@ -192,6 +191,8 @@ def main():
     args.add_argument('--seed', type=int, default=42, help='Random seed for generating test expressions (default: 42).')
     args = args.parse_args()
 
+    print(args.checkpoint)
+
     if args.checkpoint:
         vocab = build_vocab()
         model = load_model(args.checkpoint, args.modelsize)
@@ -206,8 +207,6 @@ def main():
             print(f"Total: {args.num_tests}, Correct: {correct_count}, Accuracy: {correct_count/args.num_tests:.2%}")
         else:
             evaluateModel(model, args.expression, max_len=256, vocab=vocab)
-    else:
-        evaluate(args.expression, max_len=256, model_size=args.modelsize)
 
 if __name__ == '__main__':
     main()

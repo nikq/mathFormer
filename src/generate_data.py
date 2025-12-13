@@ -10,6 +10,7 @@ from fractions import Fraction
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple, Iterator, Set
 from unittest import case
+from src.ast import Node, Leaf, OpNode, UnaryOpNode, evaluate, evaluate_binary, ARITY
 
 
 # ====== コンフィグ ======
@@ -65,72 +66,6 @@ class GeneratorResult:
     hash: int                # 式ツリーの正規ハッシュ
     context: GenerationContext  # 生成時のコンテキスト
     meta: dict               # 追加のメタデータ（depth, digitsなど）
-
-
-
-# ====== AST ======
-class Node: ...
-class Leaf(Node):
-    def __init__(self, value: int):
-        self.value = value
-class OpNode(Node):
-    def __init__(self, op: str, left: Node, right: Node):
-        self.op = op
-        self.left = left
-        self.right = right
-
-class UnaryOpNode(Node):
-    def __init__(self, op: str, child: Node):
-        self.op = op
-        self.child = child
-
-ARITY = {
-    '+': 2, '-': 2, '*': 2, '/': 2, '%': 2,
-    'max': 2, 'min': 2,
-    'next': 1, 'prev': 1, 'abs': 1
-}
-
-
-# ====== 評価 ======
-
-    
-def evaluate(node: Node) -> Fraction:
-    if isinstance(node, Leaf):
-        return Fraction(node.value)
-    if isinstance(node, UnaryOpNode):
-        child = evaluate(node.child)
-        if node.op == 'next':
-            return child + 1
-        if node.op == 'prev':
-            return child - 1
-        if node.op == 'abs':
-            return abs(child)
-        raise ValueError(f"Unknown unary operator: {node.op}")
-
-    left = evaluate(node.left)
-    right = evaluate(node.right)
-    return evaluate_binary(node, left, right)
-
-def evaluate_binary(node: OpNode, left: Fraction, right: Fraction) -> Fraction:
-    if node.op == '+':
-        return left + right
-    if node.op == '-':
-        return left - right
-    if node.op == '*':
-        return left * right
-    if node.op == '/':
-        if right == 0:
-            raise ZeroDivisionError
-        return left / right
-    if node.op == '%':
-        if right == 0:
-            raise ZeroDivisionError
-        return left % right
-    if node.op == 'max':
-        return max(left, right)
-    if node.op == 'min':
-        return min(left, right)
-    raise ValueError(f"Unknown operator: {node.op}")
 
 
 # ====== 生成 ======

@@ -5,7 +5,7 @@ from src.evaluate import split_scratchpad_and_result
 class TestAutoregressiveDataset(unittest.TestCase):
     def test_sequence_format(self):
         vocab = build_vocab()
-        dataset = MathExprDataset(vocab, num_examples=5, depth=3, max_digits=3)
+        dataset = MathExprDataset(vocab, num_examples=5, depth=3, max_digits=3, prob_scratchpad=1.0)
         seq = dataset[0]
         # seq is a tensor of token ids starting with <sos>
         inv_vocab = {i:ch for ch,i in vocab.items()}
