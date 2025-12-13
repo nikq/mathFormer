@@ -10,7 +10,7 @@ from fractions import Fraction
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple, Iterator, Set
 from unittest import case
-from src.math_ast import Node, Leaf, OpNode, UnaryOpNode, evaluate, evaluate_binary, ARITY
+from src.math_ast import Node, Leaf, OpNode, UnaryOpNode, evaluate, evaluate_binary, ARITY, parse
 
 
 # ====== コンフィグ ======
@@ -52,6 +52,15 @@ class GenerationContext:
         else:
             raise ValueError(f"Unknown endian: {self.endian}")
 
+    def r_space(self, probability=0.25):
+        return ' ' if random.random() < probability else ''
+
+    # returns random spaced operator
+    def r_op(self, operator,probability=0.25):
+        return f'{self.r_space(probability)}{operator}{self.r_space(probability)}'
+
+
+
 @dataclass
 class GeneratorResult:
     """生成されたサンプルを保持するクラス。
@@ -63,7 +72,6 @@ class GeneratorResult:
     expr: str                # 式の文字列（inputと同じ）
     exprBigEndian: str       # 式の文字列（big-endian）
     result: str              # 数値結果の文字列表現
-    hash: int                # 式ツリーの正規ハッシュ
     context: GenerationContext  # 生成時のコンテキスト
     meta: dict               # 追加のメタデータ（depth, digitsなど）
 
@@ -132,65 +140,22 @@ def to_string(node: Node, ctx: GenerationContext, parent_prec: int = 0, is_right
     
     if isinstance(node, UnaryOpNode):
         child_str = to_string(node.child, ctx, 100, strip_paren=True) # 100 is high prec
-        return f"{node.op}({child_str})"
+        return f"{node.op}{ctx.r_space()}({ctx.r_space()}{child_str}{ctx.r_space()})"
 
     if node.op in ('max', 'min'):
         left_str = to_string(node.left, ctx, -1, strip_paren=True)
         right_str = to_string(node.right, ctx, -1, strip_paren=True)
-        return f"{node.op}({left_str}, {right_str})"
+        return f"{node.op}{ctx.r_space()}({ctx.r_space()}{left_str}{ctx.r_space()},{ctx.r_space()}{right_str}{ctx.r_space()})"
         
     precedence = {'+': 1, '-': 1, '*': 2, '/': 2, '%': 2}
     prec = precedence.get(node.op, 0)
     left_str = to_string(node.left, ctx, prec, is_right=False, strip_paren=strip_paren)
     right_str = to_string(node.right, ctx, prec, is_right=True, strip_paren=strip_paren)
-    s = f"{left_str} {node.op} {right_str}"
+    s = f"{left_str}{ctx.r_op(node.op)}{right_str}"
     need_paren = prec < parent_prec or (parent_prec == prec and is_right and node.op in ('-', '/', '%'))
     if not need_paren and not strip_paren and random.random() < 0.15:
         need_paren = True
-    return f"({s})" if need_paren else s
-
-def canonicalize(node: Node) -> Node:
-    if isinstance(node, Leaf):
-        return Leaf(node.value)
-    if isinstance(node, UnaryOpNode):
-        child = canonicalize(node.child)
-        return UnaryOpNode(node.op, child)
-
-    left = canonicalize(node.left)
-    right = canonicalize(node.right)
-    
-    if node.op in ('max', 'min'):
-        # Sort arguments for canonicalization
-        items = [left, right]
-        items_sorted = sorted(items, key=lambda n: to_string(n, GenerationContext(endian='big'), strip_paren=True))
-        return OpNode(node.op, items_sorted[0], items_sorted[1])
-
-    if isinstance(node, OpNode) and node.op == '-':
-        right = OpNode('*', Leaf(-1), right)
-        node = OpNode('+', left, right)
-        left, right = node.left, node.right
-    if isinstance(node, OpNode) and node.op in ('+', '*'):
-        items = list(itertools.chain.from_iterable(flatten(x, node.op) for x in (left, right)))
-        items = [canonicalize(it) for it in items]
-        items_sorted = sorted(items, key=lambda n: to_string(n, GenerationContext(endian='big'), strip_paren=True))
-        current = items_sorted[0]
-        for it in items_sorted[1:]:
-            current = OpNode(node.op, current, it)
-        return current
-    if isinstance(node, OpNode) and node.op == '/':
-        return OpNode('/', left, right)
-    if isinstance(node, OpNode) and node.op == '%':
-        return OpNode('%', left, right)
-    return OpNode(node.op, left, right)
-
-def canonical_hash(node: Node) -> int:
-    norm = canonicalize(node)
-    s = to_string(norm, GenerationContext(endian='big'), strip_paren=True)
-    h = 0xcbf29ce484222325
-    for ch in s:
-        h ^= ord(ch)
-        h = (h * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
-    return h
+    return f"({ctx.r_op(s)})" if need_paren else ctx.r_op(s)
 
 
 
@@ -585,6 +550,9 @@ def scratchpad(node: Node, cfg: GenConfig, ctx: GenerationContext) -> str:
             elif n.op == 'abs':
                 result = abs(child_val)
                 steps.append(f"abs({ctx.f(child_val)})={ctx.f(result)}")
+            elif n.op == '-':
+                result = - child_val
+                # steps.append(f'-({ctx.f(child_val)})={ctx.f(result)}')
             else:
                 raise ValueError(f"Unknown unary op: {n.op}")
             return result
@@ -711,7 +679,6 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
 
     expr = to_string(tree, ctx)
     exprBigEndian = to_string(tree, GenerationContext(endian='big'))
-    norm_hash = canonical_hash(tree)
     scratch = scratchpad(tree, cfg, ctx)
     
     model_input = expr
@@ -722,7 +689,6 @@ def generate_sample(cfg: GenConfig) -> GeneratorResult:
         expr=expr,
         exprBigEndian=exprBigEndian,
         result=str(result),
-        hash=norm_hash,
         context=ctx,
         meta={
             "depth": depth,
@@ -737,23 +703,12 @@ def stream_samples(cfg: GenConfig) -> Iterator[GeneratorResult]:
     if cfg.seed is not None:
         random.seed(cfg.seed)
 
-    recent: List[int] = []
-    recent_set: Set[int] = set()
-
     while True:
         s = generate_sample(cfg)
-        h = s.hash
-        if h in recent_set:
-            continue  # 近重複スキップ
         len_expr = len(s.expr)
         len_scratch = len(s.scratch) if s.scratch else 0
         if len_expr + len_scratch > 2000:
             continue
-        recent.append(h)
-        recent_set.add(h)
-        if len(recent) > cfg.dedup_window:
-            old = recent.pop(0)
-            recent_set.discard(old)
         yield s
 
 
@@ -766,94 +721,6 @@ def demo(n: int = 1, cfg: GenConfig | None = None) -> None:
         s = next(gen)
         print(f'endian {s.context.endian:<10} {i:<10} {s.expr}{" [" + s.scratch + "]" if s.scratch else ""}; {s.result}')
 
-
-#====== 式のパース（コマンドライン用） ======
-def parse_expression(expr: str) -> Node:
-    """
-    括弧と演算子優先度に対応した式パーサー
-    優先度：
-      1. 括弧
-      2. * / （左結合）
-      3. + - （左結合）
-    """
-    
-    def tokenize(s: str) -> List[str]:
-        """式を字句解析してトークンに分割"""
-        tokens = []
-        i = 0
-        while i < len(s):
-            if s[i].isspace():
-                i += 1
-            elif s[i] in '()+-*/':
-                tokens.append(s[i])
-                i += 1
-            elif s[i].isdigit():
-                j = i
-                while j < len(s) and s[j].isdigit():
-                    j += 1
-                tokens.append(s[i:j])
-                i = j
-            else:
-                i += 1
-        return tokens
-    
-    tokens = tokenize(expr)
-    pos = 0
-    
-    def peek() -> Optional[str]:
-        nonlocal pos
-        if pos < len(tokens):
-            return tokens[pos]
-        return None
-    
-    def consume() -> Optional[str]:
-        nonlocal pos
-        if pos < len(tokens):
-            tok = tokens[pos]
-            pos += 1
-            return tok
-        return None
-    
-    def parse_expr() -> Node:
-        """加減を解析（最低優先度）"""
-        left = parse_term()
-        while peek() in ('+', '-'):
-            op = consume()
-            right = parse_term()
-            left = OpNode(op, left, right)
-        return left
-    
-    def parse_term() -> Node:
-        """乗除を解析"""
-        left = parse_factor()
-        while peek() in ('*', '/'):
-            op = consume()
-            right = parse_factor()
-            left = OpNode(op, left, right)
-        return left
-    
-    def parse_factor() -> Node:
-        """括弧と数値を解析（最高優先度）"""
-        tok = peek()
-        if tok == '(':
-            consume()  # '('を消費
-            node = parse_expr()  # 再帰的に式を解析
-            if peek() == ')':
-                consume()  # ')'を消費
-            return node
-        elif tok and tok[0].isdigit():
-            consume()
-            return Leaf(int(tok))
-        else:
-            raise ValueError(f"Unexpected token: {tok}")
-    
-    try:
-        result = parse_expr()
-        if pos < len(tokens):
-            raise ValueError(f"Unexpected token at end: {tokens[pos]}")
-        return result
-    except Exception as e:
-        raise ValueError(f"Parse error: {e}")
 
 def main():
     import argparse
@@ -881,7 +748,7 @@ def main():
     
     # もし式が与えられた場合はステップ分解だけを実行
     if args.expr is not None:
-        tree = parse_expression(args.expr)
+        tree = parse(args.expr)
         print(to_string(tree, GenerationContext(endian='big')))
         ctx = GenerationContext(endian='big')
         scratch = scratchpad(tree, GenConfig(prob_scratchpad=1.0), ctx)
