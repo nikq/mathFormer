@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MathFormer Interactive Viewer</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            width: 70%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .token-container {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .token {
+            padding: 5px 10px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: monospace;
+            border: 2px solid transparent;
+        }
+
+        .token.generated {
+            background: #dcedc8;
+        }
+
+        .token.selected {
+            border-color: #007bff;
+            background: #d0e0ff;
+        }
+
+        .token.generated.selected {
+            background: #c5e1a5;
+            border-color: #007bff;
+        }
+
+        .visualization-area {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            gap: 20px;
+        }
+
+        #heatmap-container {
+            width: 100%;
+            height: 400px;
+            position: relative;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .controls {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        select {
+            padding: 5px;
+        }
+
+        .layer-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+
+    <h1>MathFormer Interactive Viewer</h1>
+
+    <div class="card">
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+            <strong>Checkpoint:</strong>
+            <select id="checkpointSelect"></select>
+            <button onclick="loadCheckpoint()">Load</button>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <input type="text" id="inputText" value="12+34=" placeholder="Enter expression...">
+            <button onclick="analyze()">Analyze</button>
+        </div>
+        <div id="tokens" class="token-container"></div>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h2>Attention Map</h2>
+            <div class="controls">
+                <label>Layer: <select id="layerSelect"></select></label>
+                <label>Head: <select id="headSelect"></select></label>
+            </div>
+            <div id="heatmap-container">
+                <canvas id="attnCanvas"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Token Embedding / Activation</h2>
+            <div class="controls">
+                <label>View:
+                    <select id="vectorViewSelect" onchange="renderVector()">
+                        <option value="embedding">Embedding</option>
+                        <option value="activation">Activation (Selected Layer)</option>
+                    </select>
+                </label>
+            </div>
+            <div style="height: 300px;">
+                <canvas id="vectorCanvas"></canvas>
+            </div>
+            <p>Select a token above to highlight its vector.</p>
+        </div>
+    </div>
+
+    <script>
+        let currentData = null;
+        let selectedTokenIdx = 0;
+        let attnChart = null;
+        let vectorChart = null;
+
+        // Load checkpoints on startup
+        window.onload = async function () {
+            try {
+                const res = await fetch('/checkpoints');
+                if (res.ok) {
+                    const checkpoints = await res.json();
+                    const select = document.getElementById('checkpointSelect');
+                    if (checkpoints.length === 0) {
+                        const opt = document.createElement('option');
+                        opt.text = "No checkpoints found";
+                        select.add(opt);
+                        return;
+                    }
+                    checkpoints.forEach(cp => {
+                        const opt = document.createElement('option');
+                        opt.value = cp;
+                        opt.text = cp;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (e) {
+                console.error("Failed to load checkpoints", e);
+            }
+        };
+
+        async function loadCheckpoint() {
+            const filename = document.getElementById('checkpointSelect').value;
+            if (!filename) return;
+
+            try {
+                const res = await fetch('/load_checkpoint', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(data.message);
+                } else {
+                    alert("Error: " + data.detail);
+                }
+            } catch (e) {
+                alert("Failed to load checkpoint");
+            }
+        }
+
+        async function analyze() {
+            const text = document.getElementById('inputText').value;
+            const res = await fetch('/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+
+            if (!res.ok) {
+                alert("Error analyzing text");
+                return;
+            }
+
+            currentData = await res.json();
+            renderTokens();
+            setupControls();
+            renderAttention();
+            renderVector();
+        }
+
+        function renderTokens() {
+            const container = document.getElementById('tokens');
+            container.innerHTML = '';
+            const promptLen = currentData.prompt_length || 0;
+            currentData.tokens.forEach((t, i) => {
+                const el = document.createElement('div');
+                let className = 'token';
+                if (i >= promptLen) className += ' generated';
+                if (i === selectedTokenIdx) className += ' selected';
+
+                el.className = className;
+                el.innerText = t;
+                el.onclick = () => {
+                    selectedTokenIdx = i;
+                    renderTokens(); // Re-render to update classes
+
+                    // Update views that depend on selected token (if any, like highlighting cross-attn row)
+                    // Currently Attention Map is full T x T, but Vector view depends on token.
+                    renderVector();
+                };
+                container.appendChild(el);
+            });
+        }
+
+        function setupControls() {
+            if (!currentData) return;
+            const numLayers = currentData.attentions.length;
+            const numHeads = currentData.attentions[0].length;
+
+            const layerSelect = document.getElementById('layerSelect');
+            layerSelect.innerHTML = '';
+            for (let i = 0; i < numLayers; i++) {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.innerText = `Layer ${i}`;
+                layerSelect.appendChild(opt);
+            }
+            layerSelect.onchange = () => { renderAttention(); renderVector(); };
+
+            const headSelect = document.getElementById('headSelect');
+            headSelect.innerHTML = '';
+            for (let i = 0; i < numHeads; i++) {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.innerText = `Head ${i}`;
+                headSelect.appendChild(opt);
+            }
+            headSelect.onchange = renderAttention;
+        }
+
+        function renderAttention() {
+            if (!currentData) return;
+
+            const layer = parseInt(document.getElementById('layerSelect').value) || 0;
+            const head = parseInt(document.getElementById('headSelect').value) || 0;
+
+            const matrix = currentData.attentions[layer][head];
+            const tokens = currentData.tokens;
+            const size = tokens.length;
+
+            // Flatten data for heatmap
+            // x: target (which token attended to source), y: source
+            // Usually standard is: row i attends to col j.
+            // Let's create a dataset suitable for a grid.
+
+            // Trying to use Chart.js for Heatmap (Matrix chart) is tricky without plugin.
+            // Let's implement a simple canvas drawer for heatmap to be safe and dependency-light,
+            // or use a simple chart.js bar chart? No, heatmap is 2D. 
+            // Let's use raw Canvas API for heatmap, it's easier than debugging Chart.js plugins.
+
+            drawHeatmap(matrix, tokens);
+        }
+
+        function drawHeatmap(matrix, labels) {
+            const canvas = document.getElementById('attnCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // Resize canvas to fit container
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+
+            const w = canvas.width;
+            const h = canvas.height;
+            const n = labels.length;
+
+            const cellW = (w - 40) / n; // 40px padding for labels
+            const cellH = (h - 40) / n;
+            const startX = 30;
+            const startY = 30;
+
+            ctx.clearRect(0, 0, w, h);
+
+            // Draw cells
+            for (let i = 0; i < n; i++) { // row (query)
+                for (let j = 0; j < n; j++) { // col (key)
+                    const val = matrix[i][j];
+                    // Color scale: white to blue
+                    const intensity = Math.floor(val * 255);
+                    ctx.fillStyle = `rgb(${255 - intensity}, ${255 - intensity}, 255)`; // Simple grayscale actually, let's do blue
+                    // Alpha-based blue
+                    ctx.fillStyle = `rgba(0, 100, 255, ${val})`;
+
+                    ctx.fillRect(startX + j * cellW, startY + i * cellH, cellW, cellH);
+                    ctx.strokeRect(startX + j * cellW, startY + i * cellH, cellW, cellH);
+                }
+            }
+
+            // Draw labels
+            ctx.fillStyle = 'black';
+            ctx.font = '12px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            for (let i = 0; i < n; i++) {
+                // Top labels (Columns)
+                ctx.fillText(labels[i], startX + i * cellW + cellW / 2, startY - 10);
+                // Left labels (Rows)
+                ctx.textAlign = 'right';
+                ctx.fillText(labels[i], startX - 5, startY + i * cellH + cellH / 2);
+                ctx.textAlign = 'center';
+            }
+        }
+
+        function renderVector() {
+            if (!currentData) return;
+
+            const viewType = document.getElementById('vectorViewSelect').value;
+            let vector = [];
+
+            if (viewType === 'embedding') {
+                vector = currentData.embeddings[selectedTokenIdx];
+            } else {
+                const layer = parseInt(document.getElementById('layerSelect').value) || 0;
+                vector = currentData.activations[layer][selectedTokenIdx];
+            }
+
+            // Simple Bar Chart for Vector
+            const ctx = document.getElementById('vectorCanvas').getContext('2d');
+
+            if (vectorChart) vectorChart.destroy();
+
+            vectorChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: vector.map((_, i) => i),
+                    datasets: [{
+                        label: `${viewType} - Token: ${currentData.tokens[selectedTokenIdx]}`,
+                        data: vector,
+                        backgroundColor: '#007bff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { display: false }, // Hide huge x-axis labels
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+
+</html>
