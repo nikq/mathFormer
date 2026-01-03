@@ -24,6 +24,7 @@ I've successfully implemented reinforcement learning training using Group Relati
    - Multi-response sampling per problem
    - Binary correctness rewards
    - Full GRPO training loop with evaluation
+   - ALiBi positional embeddings supported in model
 
 3. **[tests/test_grpo.py](file:///c:/Users/nikut/work/mathFormer/tests/test_grpo.py)** - Unit tests for GRPO components
 4. **[tests/test_train_rl.py](file:///c:/Users/nikut/work/mathFormer/tests/test_train_rl.py)** - Integration tests for RL training
@@ -87,14 +88,14 @@ uv run python -m tests.test_train_rl
 
 **Results:**
 - ✓ Generated 5 problems
-  - Problem 1: (4-9)*-1 = 5
-  - Problem 2: (7--6)/(2-8) = -13/6
-  - Problem 3: -9*1 = -9
-- ✓ Sampled response: length 6
+  - Problem 1: prev (-2 )*9  = -27
+  - Problem 2:  (4-2)/-6 = -1/3
+  - Problem 3: abs( 9) = 9
+- ✓ Generated response: length 24
 - ✓ Prepared batch tensors: torch.Size([3, 7])
 - ✓ End-to-end training step completed
-  - Policy loss: 0.0297
-  - KL divergence: 0.0615
+  - Policy loss: 0.0653
+  - KL divergence: -0.0733
   - Avg reward: 0.5000
 
 ---
