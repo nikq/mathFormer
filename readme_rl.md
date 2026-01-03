@@ -152,9 +152,15 @@ uv run python -m src.train_rl \
 | `--lr` | 1e-5 | Learning rate |
 | `--max_digits` | 2 | Maximum digits in problems |
 | `--max_depth` | 3 | Maximum expression depth |
+| `--max_gen_len` | 256 | Maximum generation length |
 | `--kl_coef` | 0.1 | KL divergence coefficient |
 | `--clip_ratio` | 0.2 | Clipping ratio for surrogate loss |
 | `--temperature` | 1.0 | Sampling temperature |
+| `--grad_clip` | 1.0 | Gradient clipping norm |
+| `--top_k` | 0 | Top-k sampling (0 to disable) |
+| `--num_experts` | 0 | Number of experts (MoE) |
+| `--active_experts` | 0 | Active experts per token (MoE) |
+| `--modelsize` | small | Model size (tiny, small, medium, large) |
 | `--save_interval` | 100 | Save checkpoint every N steps |
 | `--eval_interval` | 50 | Evaluate every N steps |
 | `--log_csv` | '' | CSV log file path (optional) |
