@@ -5,8 +5,27 @@ import csv
 from fractions import Fraction
 from src.math_ast import evaluate, parse
 
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(x, *a, **k):
+        return x
+
 def get_device():
     return torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+
+def build_prompt(expression: str, vocab: dict) -> list[int]:
+    """Builds the standard prompt sequence for the model."""
+    # Standard format: <sos> <big> expression <scratchpad>
+    # Note: Training data might use <little>, but for generation/eval we typically use <big>
+    prompt = (
+        [vocab['<sos>']] +
+        [vocab['<big>']] +
+        [vocab[c] for c in expression] +
+        [vocab['<scratchpad>']]
+    )
+    return prompt
 
 def check_correctness(expression: str, predicted_result: str) -> bool:
     """Robust correctness check supporting integer, float, and fraction forms (e.g. '2/3')."""

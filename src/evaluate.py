@@ -22,7 +22,8 @@ def evaluateModel(model, expression: str, max_len=256, print_result=True, print_
 
     # Use <scratchpad> if available in vocab, otherwise fallback to [
     prompt_str = f'{expression}'
-    prompt = [vocab['<sos>']] + [vocab['<big>']] + [vocab[c] for c in expression] + [vocab['<scratchpad>']] # Assume big endian for eval
+    from src.utils import build_prompt
+    prompt = build_prompt(expression, vocab)
     
     prompt_tensor = torch.tensor(prompt, dtype=torch.long).to(device)
     with torch.no_grad():

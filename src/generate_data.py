@@ -640,9 +640,6 @@ def scratchpad(node: Node, cfg: GenConfig, ctx: GenerationContext) -> str:
 
     helper(node)
     return ", ".join(steps)
-            
-    helper(node)
-    return ", ".join(steps)
 
 
 # ====== サンプリング分布 ======

@@ -4,23 +4,18 @@ from torch.utils.data import DataLoader
 import argparse
 import csv
 import os
-try:
-    from tqdm import tqdm  # standard tqdm
-except ImportError:
-    def tqdm(x, *a, **k):
-        return x
+from src.utils import get_device, write_csv_log, tqdm
+from src.prepare_data import build_vocab
+from src.model import AutoRegressiveTransformerModel
 
-from src.generate_data import generate_sample, GenConfig, stream_samples
-import math
+
 from src.model import AutoRegressiveTransformerModel
 from src.prepare_data import MathExprDataset, build_vocab, collate_fn_autoregressive
-
-from src.modelparam import ModelParam
-from torch.nn.utils import clip_grad_norm_
-from src.evaluate import evaluateModel
 from src.checkpoint_utils import load_checkpoint_payload, build_model_param
-from src.utils import get_device, write_csv_log
-
+from src.evaluate import evaluateModel
+from src.generate_data import GenConfig, stream_samples
+from torch.nn.utils import clip_grad_norm_
+import math
 
 def _maybe_load_checkpoint(path, device):
     if not path:
@@ -200,7 +195,6 @@ def train(args):
                 'ninp': model_param.NInp,
                 'nhead': model_param.NHead,
                 'nhid': model_param.NHid,
-                'nlayers': model_param.NLayers,
                 'nlayers': model_param.NLayers,
                 'dropout': model_param.Dropout,
                 'num_experts': model_param.NumExperts,

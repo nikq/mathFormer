@@ -15,16 +15,10 @@ import csv
 import os
 import copy
 from typing import List, Tuple
-try:
-    from tqdm import tqdm
-except ImportError:
-    def tqdm(x, *a, **k):
-        return x
-
 from src.model import AutoRegressiveTransformerModel
 from src.prepare_data import build_vocab
 from src.generate_data import GenConfig, stream_samples, GeneratorResult
-from src.utils import check_correctness, split_scratchpad_and_result, get_device, write_csv_log
+from src.utils import check_correctness, split_scratchpad_and_result, get_device, write_csv_log, tqdm, build_prompt
 from src.grpo import GRPOConfig, GRPOTrainer, create_attention_mask
 from src.checkpoint_utils import load_checkpoint_payload, infer_model_hparams, build_model_param
 from src.modelparam import ModelParam
@@ -52,58 +46,6 @@ def generate_batch_problems(
     return problems
 
 
-def sample_response(
-    model: nn.Module,
-    prompt_tokens: torch.Tensor,
-    max_new_tokens: int,
-    eos_token: int,
-    temperature: float = 1.0,
-    top_k: int = 0
-) -> torch.Tensor:
-    """Generate a single response using nucleus/top-p sampling.
-    
-    Args:
-        model: The model to use for generation
-        prompt_tokens: Prompt token tensor of shape (T,)
-        max_new_tokens: Maximum number of tokens to generate
-        eos_token: EOS token ID
-        temperature: Sampling temperature (1.0 = normal, <1.0 = sharper, >1.0 = more random)
-        
-    Returns:
-        Generated sequence including prompt (T_total,)
-    """
-    model.eval()
-    
-    if prompt_tokens.dim() == 1:
-        prompt_tokens = prompt_tokens.unsqueeze(0)  # (1, T)
-    
-    batch_size = prompt_tokens.shape[0]
-    current_seq = prompt_tokens.clone()
-    
-    with torch.no_grad():
-        for _ in range(max_new_tokens):
-            # Get logits for next token
-            logits = model(current_seq)  # (B, T, V)
-            next_token_logits = logits[:, -1, :] / temperature  # (B, V)
-            
-            # Top-k sampling
-            if top_k > 0:
-                v, _ = torch.topk(next_token_logits, min(top_k, next_token_logits.size(-1)))
-                next_token_logits[next_token_logits < v[:, -1].unsqueeze(-1)] = -float('Inf')
-
-            
-            # Sample from distribution
-            probs = torch.softmax(next_token_logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)  # (B, 1)
-            
-            # Append to sequence
-            current_seq = torch.cat([current_seq, next_token], dim=1)
-            
-            # Check for EOS
-            if (next_token == eos_token).all():
-                break
-    
-    return current_seq.squeeze(0)  # Return (T_total,)
 
 
 def generate_batch_responses(
@@ -141,18 +83,15 @@ def generate_batch_responses(
         # Create prompt for each problem (assume big endian for consistency)
         expression = problem.exprBigEndian
         prompt_str = f'{expression}'
-        prompt = (
-            [vocab['<sos>']] +
-            [vocab['<big>']] +
-            [vocab[c] for c in expression] +
-            [vocab['<scratchpad>']]
-        )
+        prompt = build_prompt(expression, vocab)
         prompt_tensor = torch.tensor(prompt, dtype=torch.long).to(device)
         
         # Generate num_samples responses for this problem
         for _ in range(num_samples):
-            generated = sample_response(
-                model,
+            # We must use unsqueeze because the new generate expects (B, T) or handles (T) to (1, T)
+            # but generate returns (1, T) or (B, T). We should ensure consistency.
+            # Passing 1D tensor is fine with updated model.generate.
+            generated = model.generate(
                 prompt_tensor,
                 max_new_tokens=max_len,
                 eos_token=vocab['<eos>'],
@@ -261,12 +200,7 @@ def evaluate_on_test_set(
             expression = problem.exprBigEndian
             
             # Create prompt
-            prompt = (
-                [vocab['<sos>']] +
-                [vocab['<big>']] +
-                [vocab[c] for c in expression] +
-                [vocab['<scratchpad>']]
-            )
+            prompt = build_prompt(expression, vocab)
             prompt_tensor = torch.tensor(prompt, dtype=torch.long).to(device)
             
             # Generate response (greedy)
