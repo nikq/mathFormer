@@ -49,6 +49,12 @@ def train(args):
     # ModelParam でモデルパラメータをセットアップ
     # ModelParam でモデルパラメータをセットアップ
     model_param = build_model_param(args.modelsize, NTokens, checkpoint_config)
+    
+    # Override MoE parameters if specified in args
+    if hasattr(args, 'num_experts') and args.num_experts > 0:
+        model_param.NumExperts = args.num_experts
+        model_param.ActiveExperts = args.active_experts
+        
     print(f"Model configuration: {model_param}")
 
     model = AutoRegressiveTransformerModel(
@@ -57,7 +63,9 @@ def train(args):
         model_param.NHead,
         model_param.NHid,
         model_param.NLayers,
-        model_param.Dropout
+        model_param.Dropout,
+        num_experts=model_param.NumExperts,
+        active_experts=model_param.ActiveExperts
     ).to(device)
     criterion = nn.CrossEntropyLoss(ignore_index=pad_value)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -193,7 +201,10 @@ def train(args):
                 'nhead': model_param.NHead,
                 'nhid': model_param.NHid,
                 'nlayers': model_param.NLayers,
-                'dropout': model_param.Dropout
+                'nlayers': model_param.NLayers,
+                'dropout': model_param.Dropout,
+                'num_experts': model_param.NumExperts,
+                'active_experts': model_param.ActiveExperts
             }
         }
         torch.save(checkpoint_payload, checkpoint_path)
@@ -220,6 +231,11 @@ if __name__ == '__main__':
     parser.add_argument('--grad_clip', type=float, default=1.0, help='Clip gradient norm to this value (0 disables).')
     parser.add_argument('--checkpoint', type=str, default='')
     parser.add_argument('--modelsize', type=str, default='small', choices=['tiny','small','medium','large'], help='Model size preset.')
+    # MoE parameters
+    parser.add_argument('--num_experts', type=int, default=0,
+                        help='Number of experts (0 for dense model)')
+    parser.add_argument('--active_experts', type=int, default=0,
+                        help='Number of active experts per token')
     args = parser.parse_args()
 
     train(args)

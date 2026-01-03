@@ -39,7 +39,9 @@ def build_model_param(modelsize, ntokens, checkpoint_config):
         checkpoint_config.get('nhead', base_param.NHead),
         checkpoint_config.get('nhid', base_param.NHid),
         checkpoint_config.get('nlayers', base_param.NLayers),
-        checkpoint_config.get('dropout', base_param.Dropout)
+        checkpoint_config.get('dropout', base_param.Dropout),
+        checkpoint_config.get('num_experts', base_param.NumExperts),
+        checkpoint_config.get('active_experts', base_param.ActiveExperts)
     )
     return base_param
 
@@ -106,7 +108,10 @@ def load_model_from_checkpoint(model_path, device, model_size='small'):
         nhead,
         nhid_ckpt,
         nlayers_ckpt,
-        dropout
+        dropout,
+        max_len=2048, # Assuming default max_len
+        num_experts=model_param.NumExperts,
+        active_experts=model_param.ActiveExperts
     ).to(device)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     if missing or unexpected:

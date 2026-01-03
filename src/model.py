@@ -84,12 +84,72 @@ class RotaryPositionalEmbedding(nn.Module):
         return rotated
 
 
+class MoELayer(nn.Module):
+    """Mixture-of-Experts Layer.
+    
+    Replaces the standard feedforward layer. Routes tokens to top-k experts.
+    """
+    def __init__(self, d_model, dim_feedforward, num_experts, active_experts, dropout=0.1):
+        super().__init__()
+        self.num_experts = num_experts
+        self.active_experts = active_experts
+        self.d_model = d_model
+        
+        # Router (Gate) stores weights for all experts
+        self.router = nn.Linear(d_model, num_experts, bias=False)
+        
+        # Experts (MLPs)
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(d_model, dim_feedforward),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(dim_feedforward, d_model),
+                nn.Dropout(dropout)
+            )
+            for _ in range(num_experts)
+        ])
+        
+    def forward(self, x):
+        # x: (B, T, d_model)
+        B, T, C = x.shape
+        x_flat = x.view(-1, C)  # (B*T, C)
+        
+        # Router logits
+        router_logits = self.router(x_flat)  # (B*T, num_experts)
+        
+        # Top-k selection
+        routing_weights, selected_experts = torch.topk(router_logits, self.active_experts, dim=-1)
+        # routing_weights: (B*T, k), selected_experts: (B*T, k)
+        
+        routing_weights = F.softmax(routing_weights, dim=-1)
+        
+        # Dispatch inputs to experts
+        final_output = torch.zeros_like(x_flat)
+        
+        # Naive loop implementation for simplicity and clarity
+        # (For production efficiency, use scatter/gather or optimized kernels)
+        for i in range(self.active_experts):
+            expert_idx = selected_experts[:, i]
+            weight = routing_weights[:, i].unsqueeze(1)
+            
+            for expert_id in range(self.num_experts):
+                # Find tokens assigned to this expert at this rank
+                mask = (expert_idx == expert_id)
+                if mask.any():
+                    expert_input = x_flat[mask]
+                    expert_output = self.experts[expert_id](expert_input)
+                    final_output[mask] += expert_output * weight[mask]
+                    
+        return final_output.view(B, T, C)
+
+
 class TransformerBlockWithRoPE(nn.Module):
     """Transformer block with RoPE-enabled multi-head attention.
     
     This is a custom implementation that integrates RoPE into the attention mechanism.
     """
-    def __init__(self, d_model, nhead, dim_feedforward, dropout=0.1, max_len=4096):
+    def __init__(self, d_model, nhead, dim_feedforward, dropout=0.1, max_len=4096, num_experts=0, active_experts=0):
         super().__init__()
         assert d_model % nhead == 0, "d_model must be divisible by nhead"
         
@@ -106,9 +166,18 @@ class TransformerBlockWithRoPE(nn.Module):
         # RoPE
         self.rope = RotaryPositionalEmbedding(self.head_dim, max_len=max_len)
         
-        # Feedforward network
-        self.linear1 = nn.Linear(d_model, dim_feedforward)
-        self.linear2 = nn.Linear(dim_feedforward, d_model)
+        # Feedforward network or MoE
+        self.num_experts = num_experts
+        self.active_experts = active_experts
+        
+        if num_experts > 0:
+            self.moe = MoELayer(d_model, dim_feedforward, num_experts, active_experts, dropout)
+            self.linear1 = None
+            self.linear2 = None
+        else:
+            self.linear1 = nn.Linear(d_model, dim_feedforward)
+            self.linear2 = nn.Linear(dim_feedforward, d_model)
+            self.moe = None
         
         # Layer norms
         self.norm1 = nn.LayerNorm(d_model)
@@ -135,7 +204,10 @@ class TransformerBlockWithRoPE(nn.Module):
         x = x + sa_out
         
         # Feedforward
-        x = x + self._ff_block(self.norm2(x))
+        if self.moe is not None:
+             x = x + self.moe(self.norm2(x))
+        else:
+             x = x + self._ff_block(self.norm2(x))
         
         if return_attn_weights:
             return x, attn_weights
@@ -206,7 +278,7 @@ class AutoRegressiveTransformerModel(nn.Module):
     Expects input shape (B, T) of token indices. Applies causal mask internally
     if not provided. Returns logits of shape (B, T, ntoken).
     """
-    def __init__(self, ntoken, ninp, nhead, nhid, nlayers, dropout=0.1, max_len=2048):
+    def __init__(self, ntoken, ninp, nhead, nhid, nlayers, dropout=0.1, max_len=2048, num_experts=0, active_experts=0):
         super().__init__()
         self.model_type = 'DecoderOnlyTransformer'
         self.ninp = ninp
@@ -217,7 +289,7 @@ class AutoRegressiveTransformerModel(nn.Module):
         
         # Transformer blocks with RoPE
         self.blocks = nn.ModuleList([
-            TransformerBlockWithRoPE(ninp, nhead, nhid, dropout, max_len=max_len)
+            TransformerBlockWithRoPE(ninp, nhead, nhid, dropout, max_len=max_len, num_experts=num_experts, active_experts=active_experts)
             for _ in range(nlayers)
         ])
         

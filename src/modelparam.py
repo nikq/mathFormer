@@ -2,13 +2,16 @@ class ModelParam:
 
     def __init__(self, modelType: str, NTokens: int):
         self.NTokens = NTokens
+        # Initialize new attributes with default values
+        self.NumExperts = 0
+        self.ActiveExperts = 0
         self.setup(modelType)
     
-    def __repr__(self):
-        return (f"ModelParam(NTokens={self.NTokens}, NInp={self.NInp}, NHead={self.NHead}, "
-                f"NHid={self.NHid}, NLayers={self.NLayers}, Dropout={self.Dropout})")
+    def __str__(self):
+        return (f"ModelParam(NTokens={self.NTokens}, NInp={self.NInp}, NHead={self.NHead}, NHid={self.NHid}, "
+                f"NLayers={self.NLayers}, Dropout={self.Dropout}, NumExperts={self.NumExperts}, ActiveExperts={self.ActiveExperts})")
     
-    def setParam(self, modelType, NTokens, NInp, NHead, NHid, NLayers, Dropout):
+    def setParam(self, modelType, NTokens, NInp, NHead, NHid, NLayers, Dropout, NumExperts=0, ActiveExperts=0):
         self.modelType = modelType
         self.NTokens = NTokens
         self.NInp = NInp
@@ -16,6 +19,8 @@ class ModelParam:
         self.NHid = NHid
         self.NLayers = NLayers
         self.Dropout = Dropout
+        self.NumExperts = NumExperts
+        self.ActiveExperts = ActiveExperts
 
     def setup(self, modelType: str):
         if modelType == "tiny":
