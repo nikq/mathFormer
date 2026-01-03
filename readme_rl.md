@@ -24,6 +24,7 @@ I've successfully implemented reinforcement learning training using Group Relati
    - Multi-response sampling per problem
    - Binary correctness rewards
    - Full GRPO training loop with evaluation
+   - ALiBi positional embeddings supported in model
 
 3. **[tests/test_grpo.py](file:///c:/Users/nikut/work/mathFormer/tests/test_grpo.py)** - Unit tests for GRPO components
 4. **[tests/test_train_rl.py](file:///c:/Users/nikut/work/mathFormer/tests/test_train_rl.py)** - Integration tests for RL training
@@ -87,14 +88,14 @@ uv run python -m tests.test_train_rl
 
 **Results:**
 - ✓ Generated 5 problems
-  - Problem 1: (4-9)*-1 = 5
-  - Problem 2: (7--6)/(2-8) = -13/6
-  - Problem 3: -9*1 = -9
-- ✓ Sampled response: length 6
+  - Problem 1: prev (-2 )*9  = -27
+  - Problem 2:  (4-2)/-6 = -1/3
+  - Problem 3: abs( 9) = 9
+- ✓ Generated response: length 24
 - ✓ Prepared batch tensors: torch.Size([3, 7])
 - ✓ End-to-end training step completed
-  - Policy loss: 0.0297
-  - KL divergence: 0.0615
+  - Policy loss: 0.0653
+  - KL divergence: -0.0733
   - Avg reward: 0.5000
 
 ---
@@ -151,9 +152,15 @@ uv run python -m src.train_rl \
 | `--lr` | 1e-5 | Learning rate |
 | `--max_digits` | 2 | Maximum digits in problems |
 | `--max_depth` | 3 | Maximum expression depth |
+| `--max_gen_len` | 256 | Maximum generation length |
 | `--kl_coef` | 0.1 | KL divergence coefficient |
 | `--clip_ratio` | 0.2 | Clipping ratio for surrogate loss |
 | `--temperature` | 1.0 | Sampling temperature |
+| `--grad_clip` | 1.0 | Gradient clipping norm |
+| `--top_k` | 0 | Top-k sampling (0 to disable) |
+| `--num_experts` | 0 | Number of experts (MoE) |
+| `--active_experts` | 0 | Active experts per token (MoE) |
+| `--modelsize` | small | Model size (tiny, small, medium, large) |
 | `--save_interval` | 100 | Save checkpoint every N steps |
 | `--eval_interval` | 50 | Evaluate every N steps |
 | `--log_csv` | '' | CSV log file path (optional) |

@@ -9,7 +9,6 @@ import pytest
 import os
 from src.train_rl import (
     generate_batch_problems,
-    sample_response,
     prepare_batch_tensors
 )
 from src.generate_data import GenConfig
@@ -33,8 +32,8 @@ def test_generate_batch_problems():
         print(f"  Problem {i+1}: {p.exprBigEndian} = {p.result}")
 
 
-def test_sample_response():
-    """Test response sampling from model."""
+def test_model_generate():
+    """Test response generation from model."""
     vocab = build_vocab()
     device = torch.device('cpu')
     
@@ -52,8 +51,7 @@ def test_sample_response():
     prompt = torch.tensor([vocab['<sos>'], vocab['1'], vocab['+'], vocab['2']], dtype=torch.long).to(device)
     
     # Sample response
-    response = sample_response(
-        model,
+    response = model.generate(
         prompt,
         max_new_tokens=20,
         eos_token=vocab['<eos>'],
@@ -64,7 +62,7 @@ def test_sample_response():
     assert len(response) >= len(prompt)
     assert (response[:len(prompt)] == prompt).all()
     
-    print(f"✓ Sampled response: length {len(response)}")
+    print(f"✓ Generated response: length {len(response)}")
 
 
 def test_prepare_batch_tensors():
@@ -163,7 +161,7 @@ if __name__ == '__main__':
     test_generate_batch_problems()
     print()
     
-    test_sample_response()
+    test_model_generate()
     print()
     
     test_prepare_batch_tensors()
