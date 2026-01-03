@@ -33,6 +33,7 @@ class GRPOConfig:
     clip_ratio: float = 0.2
     temperature: float = 1.0
     max_grad_norm: float = 1.0
+    top_k: Optional[int] = None
 
 
 class GRPOTrainer:

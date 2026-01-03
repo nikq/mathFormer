@@ -15,7 +15,7 @@ device = get_device()
 
 
 
-def evaluateModel(model, expression: str, max_len=256, print_result=True, print_correct=True, vocab=None):
+def evaluateModel(model, expression: str, max_len=256, print_result=True, print_correct=True, vocab=None, top_k=None, temperature=1.0):
     if vocab is None:
         vocab = build_vocab()
     inv_vocab = {i: char for char, i in vocab.items()}
@@ -26,7 +26,7 @@ def evaluateModel(model, expression: str, max_len=256, print_result=True, print_
     
     prompt_tensor = torch.tensor(prompt, dtype=torch.long).to(device)
     with torch.no_grad():
-        generated = model.generate(prompt_tensor, max_new_tokens=max_len, eos_token=vocab['<eos>'])  # (T_total,)
+        generated = model.generate(prompt_tensor, max_new_tokens=max_len, eos_token=vocab['<eos>'], top_k=top_k, temperature=temperature)  # (T_total,)
     decoded = [inv_vocab[int(i)] for i in generated[1:]]  # skip <sos>
     full_seq = "".join(decoded)
     scratchpad_part, result_part = split_scratchpad_and_result(full_seq)
@@ -53,6 +53,8 @@ def main():
     args.add_argument('--depth', type=int, default=3, help='Max depth of generated expressions for random tests (default: 3).')
     args.add_argument('--digits', type=int, default=2, help='Max digits of numbers in generated expressions for random tests (default: 2).')
     args.add_argument('--seed', type=int, default=42, help='Random seed for generating test expressions (default: 42).')
+    args.add_argument('--top_k', type=int, default=None, help='Top-k sampling parameter (default: None/0 for greedy).')
+    args.add_argument('--temperature', type=float, default=1.0, help='Sampling temperature (default: 1.0).')
     args = args.parse_args()
 
     print(args.checkpoint)
@@ -65,12 +67,12 @@ def main():
             sampler = stream_samples(GenConfig(max_depth_cap=args.depth, min_digits=1, max_digits=args.digits, seed=args.seed))
             for _ in range(args.num_tests):
                 sample = next(sampler)
-                ok = evaluateModel(model, sample.exprBigEndian, max_len=256, print_result=True, print_correct=False, vocab=vocab)
+                ok = evaluateModel(model, sample.exprBigEndian, max_len=256, print_result=True, print_correct=False, vocab=vocab, top_k=args.top_k, temperature=args.temperature)
                 if ok:
                     correct_count += 1
             print(f"Total: {args.num_tests}, Correct: {correct_count}, Accuracy: {correct_count/args.num_tests:.2%}")
         else:
-            evaluateModel(model, args.expression, max_len=256, vocab=vocab)
+            evaluateModel(model, args.expression, max_len=256, vocab=vocab, top_k=args.top_k, temperature=args.temperature)
 
 if __name__ == '__main__':
     main()
