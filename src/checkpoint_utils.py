@@ -86,6 +86,30 @@ def infer_model_hparams(state_dict):
     nlayers_infer = len(block_ids) or default_param.NLayers
     return ntoken, ninp, nhid_infer, nlayers_infer
 
+def save_checkpoint(model_path, model, model_param):
+    """Save checkpoint with model state and configuration.
+    
+    Args:
+        model_path: Path to save checkpoint to
+        model: Model to save
+        model_param: ModelParam object containing model configuration
+    """
+    checkpoint = {
+        'state_dict': model.state_dict(),
+        'config': {
+            'model_type': model_param.type(),
+            'ntoken': model_param.NTokens,
+            'ninp': model_param.NInp,
+            'nhead': model_param.NHead,
+            'nhid': model_param.NHid,
+            'nlayers': model_param.NLayers,
+            'dropout': model_param.Dropout,
+            'num_experts': model_param.NumExperts,
+            'active_experts': model_param.ActiveExperts
+        }
+    }
+    torch.save(checkpoint, model_path)
+
 def load_model_from_checkpoint(model_path, device, model_size='small'):
     state_dict, config = load_checkpoint_payload(model_path, map_location=device)
     ntoken, ninp_ckpt, nhid_ckpt, nlayers_ckpt = infer_model_hparams(state_dict)
