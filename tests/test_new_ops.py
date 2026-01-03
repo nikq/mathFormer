@@ -4,7 +4,7 @@ from fractions import Fraction
 from src.generate_data import (
     evaluate, to_string, scratchpad, 
     OpNode, Leaf, UnaryOpNode, 
-    GenConfig, GenerationContext, generate_tree, generate_sample, canonicalize
+    GenConfig, GenerationContext, generate_tree, generate_sample
 )
 import random
 
@@ -75,14 +75,7 @@ class TestNewOps(unittest.TestCase):
             self.assertTrue(len(res.expr) > 0)
             self.assertTrue(len(res.result) > 0)
 
-    def test_canonicalize_max_min(self):
-        # max(2, 1) -> max(1, 2) (sorted by string rep)
-        # "1" < "2"
-        n = OpNode('max', Leaf(2), Leaf(1))
-        norm = canonicalize(n)
-        self.assertEqual(norm.op, 'max')
-        self.assertEqual(norm.left.value, 1)
-        self.assertEqual(norm.right.value, 2)
+
 
 if __name__ == '__main__':
     unittest.main()

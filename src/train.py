@@ -11,7 +11,7 @@ from src.model import AutoRegressiveTransformerModel
 
 from src.model import AutoRegressiveTransformerModel
 from src.prepare_data import MathExprDataset, build_vocab, collate_fn_autoregressive
-from src.checkpoint_utils import load_checkpoint_payload, build_model_param
+from src.checkpoint_utils import load_checkpoint_payload, build_model_param, save_checkpoint
 from src.evaluate import evaluateModel
 from src.generate_data import GenConfig, stream_samples
 from torch.nn.utils import clip_grad_norm_
@@ -187,21 +187,7 @@ def train(args):
         # Save checkpoint after each digit-depth combination
         checkpoint_path = f"checkpoints/model{model_param.hash()}_{model_param.type()}_step{step}.pt"
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
-        checkpoint_payload = {
-            'state_dict': model.state_dict(),
-            'config': {
-                'model_type': model_param.type(),
-                'ntoken': model_param.NTokens,
-                'ninp': model_param.NInp,
-                'nhead': model_param.NHead,
-                'nhid': model_param.NHid,
-                'nlayers': model_param.NLayers,
-                'dropout': model_param.Dropout,
-                'num_experts': model_param.NumExperts,
-                'active_experts': model_param.ActiveExperts
-            }
-        }
-        torch.save(checkpoint_payload, checkpoint_path)
+        save_checkpoint(checkpoint_path, model, model_param)
 
         step += 1
 

@@ -20,7 +20,7 @@ from src.prepare_data import build_vocab
 from src.generate_data import GenConfig, stream_samples, GeneratorResult
 from src.utils import check_correctness, split_scratchpad_and_result, get_device, write_csv_log, tqdm, build_prompt
 from src.grpo import GRPOConfig, GRPOTrainer, create_attention_mask
-from src.checkpoint_utils import load_checkpoint_payload, infer_model_hparams, build_model_param
+from src.checkpoint_utils import load_checkpoint_payload, infer_model_hparams, build_model_param, save_checkpoint
 from src.modelparam import ModelParam
 
 device = get_device()
@@ -392,7 +392,7 @@ def train_rl(args):
         # Save checkpoint
         if (step + 1) % args.save_interval == 0:
             checkpoint_path = f"checkpoints/rl_model_step{step+1}.pt"
-            torch.save(model.state_dict(), checkpoint_path)
+            save_checkpoint(checkpoint_path, model, model_param)
             print(f"\nSaved checkpoint to {checkpoint_path}")
     
     # Final evaluation
@@ -405,7 +405,7 @@ def train_rl(args):
     
     # Save final model
     final_path = "checkpoints/rl_model_final.pt"
-    torch.save(model.state_dict(), final_path)
+    save_checkpoint(final_path, model, model_param)
     print(f"Saved final model to {final_path}")
 
 
