@@ -311,6 +311,12 @@ def train_rl(args):
     
     # ModelParam でモデルパラメータをセットアップ
     model_param = build_model_param(args.modelsize, len(vocab), config)
+    
+    # Override MoE parameters if specified in args
+    if args.num_experts > 0:
+        model_param.NumExperts = args.num_experts
+        model_param.ActiveExperts = args.active_experts
+        
     print(f"Model configuration: {model_param}")
 
     model = AutoRegressiveTransformerModel(
@@ -319,7 +325,9 @@ def train_rl(args):
         model_param.NHead,
         model_param.NHid,
         model_param.NLayers,
-        model_param.Dropout
+        model_param.Dropout,
+        num_experts=model_param.NumExperts,
+        active_experts=model_param.ActiveExperts
     ).to(device)
     
     model.load_state_dict(state_dict, strict=False)
@@ -331,7 +339,9 @@ def train_rl(args):
         model_param.NHead,
         model_param.NHid,
         model_param.NLayers,
-        model_param.Dropout
+        model_param.Dropout,
+        num_experts=model_param.NumExperts,
+        active_experts=model_param.ActiveExperts
     ).to(device)
     ref_model.load_state_dict(state_dict, strict=False)
     ref_model.eval()
@@ -496,6 +506,12 @@ if __name__ == '__main__':
                         help='Gradient clipping norm')
     parser.add_argument('--top_k', type=int, default=0,
                         help='Top-k sampling parameter (0 to disable)')
+    
+    # MoE parameters
+    parser.add_argument('--num_experts', type=int, default=0,
+                        help='Number of experts (0 for dense model)')
+    parser.add_argument('--active_experts', type=int, default=0,
+                        help='Number of active experts per token')
     
     # Problem generation
     parser.add_argument('--max_digits', type=int, default=2,
