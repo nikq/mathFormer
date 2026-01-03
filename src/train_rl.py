@@ -57,7 +57,8 @@ def sample_response(
     prompt_tokens: torch.Tensor,
     max_new_tokens: int,
     eos_token: int,
-    temperature: float = 1.0
+    temperature: float = 1.0,
+    top_k: int = 0
 ) -> torch.Tensor:
     """Generate a single response using nucleus/top-p sampling.
     
@@ -85,6 +86,12 @@ def sample_response(
             logits = model(current_seq)  # (B, T, V)
             next_token_logits = logits[:, -1, :] / temperature  # (B, V)
             
+            # Top-k sampling
+            if top_k > 0:
+                v, _ = torch.topk(next_token_logits, min(top_k, next_token_logits.size(-1)))
+                next_token_logits[next_token_logits < v[:, -1].unsqueeze(-1)] = -float('Inf')
+
+            
             # Sample from distribution
             probs = torch.softmax(next_token_logits, dim=-1)
             next_token = torch.multinomial(probs, num_samples=1)  # (B, 1)
@@ -105,7 +112,8 @@ def generate_batch_responses(
     vocab: dict,
     num_samples: int,
     max_len: int = 256,
-    temperature: float = 1.0
+    temperature: float = 1.0,
+    top_k: int = 0
 ) -> Tuple[List[str], List[torch.Tensor], List[str]]:
     """Generate multiple responses for each problem.
     
@@ -148,7 +156,8 @@ def generate_batch_responses(
                 prompt_tensor,
                 max_new_tokens=max_len,
                 eos_token=vocab['<eos>'],
-                temperature=temperature
+                temperature=temperature,
+                top_k=top_k
             )
             
             # Decode the full sequence
@@ -337,7 +346,9 @@ def train_rl(args):
         kl_coef=args.kl_coef,
         clip_ratio=args.clip_ratio,
         temperature=args.temperature,
-        max_grad_norm=args.grad_clip
+
+        max_grad_norm=args.grad_clip,
+        top_k=args.top_k
     )
     
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -377,7 +388,7 @@ def train_rl(args):
         
         # Generate multiple responses per problem
         expressions, response_tensors, response_strs = generate_batch_responses(
-            model, problems, vocab, args.group_size, args.max_gen_len, args.temperature
+            model, problems, vocab, args.group_size, args.max_gen_len, args.temperature, args.top_k
         )
         
         # Compute rewards
@@ -483,6 +494,8 @@ if __name__ == '__main__':
                         help='Sampling temperature')
     parser.add_argument('--grad_clip', type=float, default=1.0,
                         help='Gradient clipping norm')
+    parser.add_argument('--top_k', type=int, default=0,
+                        help='Top-k sampling parameter (0 to disable)')
     
     # Problem generation
     parser.add_argument('--max_digits', type=int, default=2,

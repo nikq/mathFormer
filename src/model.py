@@ -276,8 +276,8 @@ class AutoRegressiveTransformerModel(nn.Module):
         return logits
 
     @torch.no_grad()
-    def generate(self, prompt_tokens: torch.Tensor, max_new_tokens: int, eos_token: int | None = None, include_eos: bool = False):
-        """Autoregressive greedy generation.
+    def generate(self, prompt_tokens: torch.Tensor, max_new_tokens: int, eos_token: int | None = None, include_eos: bool = False, top_k: int | None = None, temperature: float = 1.0):
+        """Autoregressive generation.
 
         prompt_tokens: (T,) or (B,T) of token indices. If (T,), assumes batch size 1.
         Returns 1D tensor (T_total,) when batch_size==1.
@@ -292,9 +292,23 @@ class AutoRegressiveTransformerModel(nn.Module):
             attn_mask = self.generate_square_subsequent_mask(T, generated.device)
             logits = self.forward(generated, attn_mask=attn_mask)  # (1,T,ntoken)
             next_token_logits = logits[0, -1, :]
-            next_token = torch.argmax(next_token_logits, dim=-1)  # ()
-            # Ensure next_token is (1,1) for cat
-            next_token = next_token.view(1, 1)
+            
+            # Apply temperature
+            if temperature != 1.0 and temperature > 0:
+                next_token_logits = next_token_logits / temperature
+            
+            # Top-k sampling
+            if top_k is not None and top_k > 0:
+                v, _ = torch.topk(next_token_logits, min(top_k, next_token_logits.size(-1)))
+                next_token_logits[next_token_logits < v[-1]] = -float('Inf')
+                probs = F.softmax(next_token_logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1) # (1,)
+                next_token = next_token.view(1, 1)
+            else:
+                next_token = torch.argmax(next_token_logits, dim=-1)  # ()
+                # Ensure next_token is (1,1) for cat
+                next_token = next_token.view(1, 1)
+            
             generated = torch.cat([generated, next_token], dim=1)  # (1,T+1)
             if eos_token is not None and next_token.item() == eos_token:
                 if include_eos:
