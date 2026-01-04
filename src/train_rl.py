@@ -409,9 +409,6 @@ def train_rl(args):
     print(f"Saved final model to {final_path}")
 
 
-    train_rl(args)
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='RL training with GRPO for MathFormer')
     

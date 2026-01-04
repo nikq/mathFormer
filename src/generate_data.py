@@ -19,7 +19,8 @@ class GenConfig:
     max_depth_cap: int = 8
     min_digits: int = 1
     max_digits: int = 2
-    operators: Set[str] = field(default_factory=lambda: {'+', '-', '*', '/', '%', 'max', 'min', 'next', 'prev', 'abs'})  # 出現する演算子
+    # operators: Set[str] = field(default_factory=lambda: {'+', '-', '*', '/', '%', 'max', 'min', 'next', 'prev', 'abs'})  # 出現する演算子
+    operators: Set[str] = field(default_factory=lambda: {'+', '-'})  # 出現する演算子
     prob_scratchpad: float = 0.3      # スクラッチパッドの確率
     prob_little_endian: float = 0.5         # リトルエンディアンの確率
     dedup_window: int = 100
